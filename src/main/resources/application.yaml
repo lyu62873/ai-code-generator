@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: ai-code-generator
+  profiles:
+    active: local
+
