@@ -189,28 +189,6 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                     String errorMsg = "AI response error: " + throwable.getMessage();
                     chatHistoryService.addChatMessage(appId, errorMsg, ChatHistoryTypeEnum.AI.getValue(), loginUser.getId());
                 });
-
-//        Long userId = loginUser.getId();
-//        chatHistoryService.saveUserMessage(appId, userId, message);
-//
-//        Flux<String> aiFlux;
-//        try {
-//            aiFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenType, appId);
-//        } catch (RuntimeException e) {
-//            chatHistoryService.saveAiErrorMessage(appId, userId, e.getMessage());
-//            throw e;
-//        }
-//
-//        StringBuilder aiMessageBuilder = new StringBuilder();
-//        return aiFlux
-//                .doOnNext(aiMessageBuilder::append)
-//                .doOnComplete(() -> {
-//                    String aiMessage = aiMessageBuilder.toString();
-//                    if (StrUtil.isNotBlank(aiMessage)) {
-//                        chatHistoryService.saveAiMessage(appId, userId, aiMessage);
-//                    }
-//                })
-//                .doOnError(error -> chatHistoryService.saveAiErrorMessage(appId, userId, error.getMessage()));
     }
 
     @Override

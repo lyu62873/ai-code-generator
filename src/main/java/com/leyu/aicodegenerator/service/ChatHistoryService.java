@@ -18,27 +18,6 @@ import java.time.LocalDateTime;
 public interface ChatHistoryService extends IService<ChatHistory> {
 
     /**
-     * Save a user message record.
-     */
-    void saveUserMessage(Long appId, Long userId, String message);
-
-    /**
-     * Save a successful AI message record.
-     */
-    void saveAiMessage(Long appId, Long userId, String message);
-
-    /**
-     * Query app chat history by cursor pagination.
-     * Only app owner or admin can query.
-     */
-    ChatHistoryPageVO listAppChatHistory(ChatHistoryQueryRequest queryRequest, User loginUser);
-
-    /**
-     * Query all chat history for admin management.
-     */
-    Page<ChatHistoryVO> adminListChatHistoryByPage(ChatHistoryAdminQueryRequest queryRequest);
-
-    /**
      * Delete all chat history records under one app.
      */
     boolean removeByAppId(Long appId);
