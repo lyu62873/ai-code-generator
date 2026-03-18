@@ -5,25 +5,31 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import com.leyu.aicodegenerator.ai.AiCodeGenTypeRoutingService;
+import com.leyu.aicodegenerator.common.ResultUtils;
 import com.leyu.aicodegenerator.constant.AppConstant;
 import com.leyu.aicodegenerator.core.AiCodeGeneratorFacade;
+import com.leyu.aicodegenerator.core.builder.VueProjectBuilder;
+import com.leyu.aicodegenerator.core.handler.StreamHandlerExecutor;
 import com.leyu.aicodegenerator.entity.App;
 import com.leyu.aicodegenerator.entity.User;
 import com.leyu.aicodegenerator.exception.BusinessException;
 import com.leyu.aicodegenerator.exception.ErrorCode;
 import com.leyu.aicodegenerator.exception.ThrowUtils;
 import com.leyu.aicodegenerator.mapper.AppMapper;
+import com.leyu.aicodegenerator.model.dto.app.AppAddRequest;
 import com.leyu.aicodegenerator.model.dto.app.AppQueryRequest;
+import com.leyu.aicodegenerator.model.enums.ChatHistoryMessageTypeEnum;
 import com.leyu.aicodegenerator.model.enums.ChatHistoryTypeEnum;
 import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 import com.leyu.aicodegenerator.model.vo.app.AppVO;
 import com.leyu.aicodegenerator.model.vo.user.UserVO;
-import com.leyu.aicodegenerator.service.AppService;
-import com.leyu.aicodegenerator.service.ChatHistoryService;
-import com.leyu.aicodegenerator.service.UserService;
+import com.leyu.aicodegenerator.service.*;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
@@ -49,12 +55,23 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private final UserService userService;
     private final AiCodeGeneratorFacade aiCodeGeneratorFacade;
     private final ChatHistoryService chatHistoryService;
+    private final StreamHandlerExecutor streamHandlerExecutor;
+    private final VueProjectBuilder vueProjectBuilder;
+
+    @Resource
+    private ScreenshotService screenshotService;
+    @Autowired
+    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
+    @Autowired
+    private ChatHistoryOriginalService  chatHistoryOriginalService;
 
     public AppServiceImpl(UserService userService, AiCodeGeneratorFacade aiCodeGeneratorFacade,
-                          ChatHistoryService chatHistoryService) {
+                          ChatHistoryService chatHistoryService, StreamHandlerExecutor streamHandlerExecutor, VueProjectBuilder vueProjectBuilder) {
         this.userService = userService;
         this.aiCodeGeneratorFacade = aiCodeGeneratorFacade;
         this.chatHistoryService = chatHistoryService;
+        this.streamHandlerExecutor = streamHandlerExecutor;
+        this.vueProjectBuilder = vueProjectBuilder;
     }
 
     /**
@@ -170,25 +187,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.SYSTEM_ERROR, "Unsupported code generation type");
 
         chatHistoryService.addChatMessage(appId, message, ChatHistoryTypeEnum.USER.getValue(), loginUser.getId());
+        chatHistoryOriginalService.addOriginalChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
 
         Flux<String> contentFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenType, appId);
 
-        StringBuilder aiResponseBuilder = new StringBuilder();
-        return contentFlux
-                .map(chunk -> {
-                    aiResponseBuilder.append(chunk);
-                    return chunk;
-                })
-                .doOnComplete(() -> {
-                    String aiResponse = aiResponseBuilder.toString();
-                    if (StrUtil.isNotBlank(aiResponse)) {
-                        chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryTypeEnum.AI.getValue(), loginUser.getId());
-                    }
-                })
-                .doOnError(throwable -> {
-                    String errorMsg = "AI response error: " + throwable.getMessage();
-                    chatHistoryService.addChatMessage(appId, errorMsg, ChatHistoryTypeEnum.AI.getValue(), loginUser.getId());
-                });
+        return streamHandlerExecutor.doExecute(contentFlux, appId, loginUser, codeGenType);
     }
 
     @Override
@@ -201,6 +204,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         try {
             chatHistoryService.removeByAppId(appId);
+            chatHistoryOriginalService.deleteByAppId(appId);
         } catch (Exception e) {
             log.error("remove chat message error: {}", e.getMessage());
         }
@@ -231,6 +235,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Application code not exist, please generate code first");
         }
 
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
+        if (codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
+            boolean buildSuccess = vueProjectBuilder.buildProject(sourceDirPath);
+            ThrowUtils.throwIf(!buildSuccess, ErrorCode.SYSTEM_ERROR, "Build Vue project failed. Please check code and dependencies");
+
+            File distDir = new File(sourceDirPath, "dist");
+            ThrowUtils.throwIf(!distDir.exists(), ErrorCode.SYSTEM_ERROR, "Vue project construction complete but dist directory does not exist");
+
+            sourceDir = distDir;
+            log.info("Vue project build success at dist directory: {}", distDir.getAbsolutePath());
+        }
+
         String deployDirPath = AppConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
         try {
             FileUtil.copyContent(sourceDir, new File(deployDirPath), true);
@@ -245,6 +261,44 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         boolean updateResult = updateById(updateApp);
         ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "Update app deploy info failed");
 
-        return String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        String appDeployUrl = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        generateAppScreenshotAsync(appId, appDeployUrl);
+        return appDeployUrl;
     }
+
+    @Override
+    public void generateAppScreenshotAsync(Long appId, String appUrl) {
+        Thread.startVirtualThread(() -> {
+            String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
+
+            App updateApp = new App();
+            updateApp.setId(appId);
+            updateApp.setCover(screenshotUrl);
+            boolean updated =  updateById(updateApp);
+            ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "Update app screenshot info failed");
+        });
+    }
+
+    @Override
+    public Long createApp(AppAddRequest appAddRequest, User loginUser) {
+        String initPrompt = appAddRequest.getInitPrompt();
+        ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "Initialization Prompt cannot be null");
+
+        App app = new App();
+        BeanUtil.copyProperties(appAddRequest, app);
+        app.setUserId(loginUser.getId());
+
+        // temp setting
+        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
+        // TODO: fix bug
+        //CodeGenTypeEnum selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
+        app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
+
+        boolean result = save(app);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        //log.info("App construction success, ID: {}, Type: {}", app.getId(), selectedCodeGenType.getValue());
+        return app.getId();
+    }
+
+
 }

@@ -11,6 +11,7 @@ public class CodeParserExecutor {
 
     private static final HtmlCodeParser htmlCodeParser = new HtmlCodeParser();
     private static final MultiFileCodeParser multiFileCodeParser = new MultiFileCodeParser();
+    private static final VueProjectCodeParser vueProjectCodeParser = new VueProjectCodeParser();
 
     /**
      *
@@ -22,6 +23,7 @@ public class CodeParserExecutor {
         return switch (codeGenType) {
             case HTML -> htmlCodeParser.parseCode(codeContent);
             case MULTI_FILE -> multiFileCodeParser.parseCode(codeContent);
+            case VUE_PROJECT -> vueProjectCodeParser.parseCode(codeContent);
             default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Unsupported generation type：" + codeGenType);
         };
     }

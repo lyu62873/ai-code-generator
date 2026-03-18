@@ -18,10 +18,13 @@ import com.leyu.aicodegenerator.model.dto.app.*;
 import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 import com.leyu.aicodegenerator.model.vo.app.AppVO;
 import com.leyu.aicodegenerator.service.AppService;
+import com.leyu.aicodegenerator.service.ProjectDownloadService;
 import com.leyu.aicodegenerator.service.UserService;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -30,6 +33,8 @@ import org.springframework.web.client.RestClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.io.File;
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -49,8 +54,9 @@ public class AppController {
 
     @Autowired
     private UserService userService;
-    @Autowired
-    private RestClient.Builder builder;
+
+    @Resource
+    private ProjectDownloadService projectDownloadService;
 
     // ==================== User Endpoints ====================
 
@@ -61,22 +67,11 @@ public class AppController {
     @PostMapping("/add")
     public BaseResponse<Long> addApp(@RequestBody AppAddRequest appAddRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appAddRequest == null, ErrorCode.PARAMS_ERROR);
-        String initPrompt = appAddRequest.getInitPrompt();
-        ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "Initialization Prompt cannot be null");
 
         User loginUser = userService.getLoginUser(request);
+        Long appId = appService.createApp(appAddRequest, loginUser);
+        return ResultUtils.success(appId);
 
-        App app = new App();
-        BeanUtil.copyProperties(appAddRequest, app);
-        app.setUserId(loginUser.getId());
-
-        // temp setting
-        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
-        app.setCodeGenType(CodeGenTypeEnum.MULTI_FILE.getValue());
-
-        boolean result = appService.save(app);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
-        return ResultUtils.success(app.getId());
     }
 
     /**
@@ -145,7 +140,7 @@ public class AppController {
      * Paginated list of the current user's own apps.
      * Supports fuzzy search by app name. Page size is capped at 20.
      */
-    @PostMapping("/list/page/vo")
+    @PostMapping("/my/list/page/vo")
     public BaseResponse<Page<AppVO>> listAppVOByPage(@RequestBody AppQueryRequest appQueryRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appQueryRequest == null, ErrorCode.PARAMS_ERROR);
 
@@ -170,7 +165,7 @@ public class AppController {
      * Paginated list of featured apps (priority > 0), ordered by priority descending.
      * Supports fuzzy search by app name. Page size is capped at 20.
      */
-    @PostMapping("/list/featured/page/vo")
+    @PostMapping("/good/list/page/vo")
     public BaseResponse<Page<AppVO>> listFeaturedAppVOByPage(@RequestBody AppQueryRequest appQueryRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appQueryRequest == null, ErrorCode.PARAMS_ERROR);
 
@@ -301,5 +296,27 @@ public class AppController {
 
         String deployUrl = appService.deployApp(appId, loginUser);
         return ResultUtils.success(deployUrl);
+    }
+
+    @GetMapping("/download/{appId}")
+    public void downloadAppCode(@PathVariable Long appId,
+                                HttpServletRequest request,
+                                HttpServletResponse response) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "App id is invalid");
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "App not found");
+
+        User loginUser = userService.getLoginUser(request);
+        ThrowUtils.throwIf(!app.getUserId().equals(loginUser.getId()), ErrorCode.NO_AUTH_ERROR, "No permission to download the code");
+
+        String codeGenType = app.getCodeGenType();
+        String sourceDirName = codeGenType + "_" + appId;
+        String sourceDirPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDirName;
+
+        File sourceDir = new File(sourceDirPath);
+        ThrowUtils.throwIf(!sourceDir.exists() || !sourceDir.isDirectory(),
+                ErrorCode.NOT_FOUND_ERROR, "Application code not exist, please generate code first");
+        String downloadFileName = String.valueOf(appId);
+        projectDownloadService.downloadProjectAsZip(sourceDirPath, downloadFileName, response);
     }
 }

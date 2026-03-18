@@ -2,6 +2,7 @@ package com.leyu.aicodegenerator.service;
 
 import com.leyu.aicodegenerator.entity.App;
 import com.leyu.aicodegenerator.entity.User;
+import com.leyu.aicodegenerator.model.dto.app.AppAddRequest;
 import com.leyu.aicodegenerator.model.dto.app.AppQueryRequest;
 import com.leyu.aicodegenerator.model.vo.app.AppVO;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -58,4 +59,8 @@ public interface AppService extends IService<App> {
      * @return
      */
     String deployApp(Long appId, User loginUser);
+
+    void generateAppScreenshotAsync(Long appId, String appUrl);
+
+    Long createApp(AppAddRequest appAddRequest, User loginUser);
 }

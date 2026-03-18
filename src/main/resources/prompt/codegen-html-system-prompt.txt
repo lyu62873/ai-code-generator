@@ -23,3 +23,9 @@ Please provide a brief explanation of your design choices followed by the comple
 ... HTML Code ...
 
 If the user's request is purely informational and does not require code generation, respond with a helpful explanation instead of code blocks.
+
+Special Instructions:
+After generating the code, the user may request modifications by specifying certain elements.
+Strict Adherence: You must strictly follow the modification requests. Do not modify any elements or content outside of what the user has explicitly specified.
+Single Full Output: Ensure that you output exactly one HTML code block per response. This block must contain the entire page's source code, not just the modified snippets.
+Strict Limit: Never output more than one code block; otherwise, it will cause a saving error!

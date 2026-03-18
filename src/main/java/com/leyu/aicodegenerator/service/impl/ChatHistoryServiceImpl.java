@@ -1,5 +1,6 @@
 package com.leyu.aicodegenerator.service.impl;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.leyu.aicodegenerator.constant.UserConstant;
 import com.leyu.aicodegenerator.entity.App;
@@ -15,16 +16,22 @@ import com.leyu.aicodegenerator.model.dto.chatHistory.ChatHistoryQueryRequest;
 import com.leyu.aicodegenerator.service.ChatHistoryService;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Chat history service implementation.
  */
 @Service
+@Slf4j
 public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatHistory> implements ChatHistoryService {
 
     @Resource
@@ -110,6 +117,37 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
         return page(Page.of(1, pageSize), queryWrapper);
     }
 
+    @Override
+    public int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount) {
+        try {
+            QueryWrapper queryWrapper = QueryWrapper.create()
+                    .eq(ChatHistory::getAppId, appId)
+                    .orderBy(ChatHistory::getCreateTime, false)
+                    .limit(1, maxCount);
+            List<ChatHistory> historyList = list(queryWrapper);
+            if (CollUtil.isEmpty(historyList)) return 0;
+
+            historyList = historyList.reversed();
+
+            int loadedCount = 0;
+            chatMemory.clear();
+
+            for (ChatHistory chatHistory : historyList) {
+                if (ChatHistoryTypeEnum.USER.getValue().equals(chatHistory.getMessageType())) {
+                    chatMemory.add(UserMessage.from(chatHistory.getMessage()));
+                    loadedCount++;
+                } else if (ChatHistoryTypeEnum.AI.getValue().equals(chatHistory.getMessageType())) {
+                    chatMemory.add(AiMessage.from(chatHistory.getMessage()));
+                    loadedCount++;
+                }
+            }
+            log.info("Successfully loaded {} chat history for AppId {}", loadedCount, appId);
+            return loadedCount;
+        } catch (Exception e) {
+            log.error("Failed to load chat history for AppId {}, error: {}", appId, e.getMessage(), e);
+            return 0;
+        }
+    }
 
 
 }

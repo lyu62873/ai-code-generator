@@ -1,14 +1,12 @@
 package com.leyu.aicodegenerator.service;
 
 import com.leyu.aicodegenerator.entity.User;
-import com.leyu.aicodegenerator.model.dto.chatHistory.ChatHistoryAdminQueryRequest;
 import com.leyu.aicodegenerator.model.dto.chatHistory.ChatHistoryQueryRequest;
-import com.leyu.aicodegenerator.model.vo.chatHistory.ChatHistoryPageVO;
-import com.leyu.aicodegenerator.model.vo.chatHistory.ChatHistoryVO;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
 import com.leyu.aicodegenerator.entity.ChatHistory;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 
 import java.time.LocalDateTime;
 
@@ -27,4 +25,8 @@ public interface ChatHistoryService extends IService<ChatHistory> {
     QueryWrapper getQueryWrapper(ChatHistoryQueryRequest queryRequest);
 
     Page<ChatHistory> listAppChatHistoryByPage(Long appId, int pageSize, LocalDateTime lastCreateTime, User loginUser);
+
+    int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount);
+
+
 }
