@@ -11,6 +11,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.time.Duration;
+
 @Configuration
 @ConfigurationProperties(prefix = "langchain4j.open-ai.routing-chat-model")
 @Data
@@ -22,13 +24,12 @@ public class RoutingChatModelConfig {
     private Integer maxTokens;
     private boolean logRequests;
     private boolean logResponses;
+    private Integer timeout;
 
 
     @Bean(name = "routingChatModel")
     public ChatModel routingChatModel() {
 
-//        final String modelName = "deepseek-reasoner";
-//        final int maxTokens = 32768;
 
         return OpenAiChatModel.builder()
                 .apiKey(apiKey)
@@ -37,6 +38,7 @@ public class RoutingChatModelConfig {
                 .maxTokens(maxTokens)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
+                .timeout(Duration.ofSeconds(timeout))
                 .build();
     }
 }

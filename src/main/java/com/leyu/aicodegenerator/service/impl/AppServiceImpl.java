@@ -6,7 +6,6 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.leyu.aicodegenerator.ai.AiCodeGenTypeRoutingService;
-import com.leyu.aicodegenerator.common.ResultUtils;
 import com.leyu.aicodegenerator.constant.AppConstant;
 import com.leyu.aicodegenerator.core.AiCodeGeneratorFacade;
 import com.leyu.aicodegenerator.core.builder.VueProjectBuilder;
@@ -31,7 +30,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
@@ -42,6 +40,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import static com.leyu.aicodegenerator.utils.FluxToCodeGenTypeUtil.fluxToCodeGenType;
 
 /**
  * App Service Implementation
@@ -290,13 +290,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         // temp setting
         app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
-        // TODO: fix bug
-        //CodeGenTypeEnum selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
-        app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
+
+        CodeGenTypeEnum selectedCodeGenType = fluxToCodeGenType(aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt));
+        app.setCodeGenType(selectedCodeGenType.getValue());
 
         boolean result = save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
-        //log.info("App construction success, ID: {}, Type: {}", app.getId(), selectedCodeGenType.getValue());
+        log.info("App construction success, ID: {}, Type: {}", app.getId(), selectedCodeGenType.getValue());
         return app.getId();
     }
 
