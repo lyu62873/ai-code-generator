@@ -1,6 +1,41 @@
 ### CUSTOM ###
 application-local.yaml
 tmp/
+temp/
+logs/
+log/
+*.log
+*.out
+*.err
+*.pid
+*.pid.lock
+*.seed
+
+# env / secrets
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+*.secrets
+*.key
+*.pem
+*.p12
+*.crt
+*.cer
+
+# archives / backups
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.7z
+*.rar
+*.bak
+*.tmp
+*.swp
+*.swo
 
 HELP.md
 target/
@@ -35,6 +70,22 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node / frontend outputs
+node_modules/
+coverage/
+.pnpm-store/
+.npm/
+.yarn/
+.yarn-cache/
+.parcel-cache/
+.next/
+.nuxt/
 
 ### langgraph4j ###
 src/main/java/com/leyu/aicodegenerator/langgraph4j/
