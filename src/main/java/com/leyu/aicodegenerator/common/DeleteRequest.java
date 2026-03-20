@@ -5,6 +5,7 @@ import lombok.Data;
 import java.io.Serial;
 import java.io.Serializable;
 
+/** DeleteRequest implementation. */
 @Data
 public class DeleteRequest implements Serializable {
 

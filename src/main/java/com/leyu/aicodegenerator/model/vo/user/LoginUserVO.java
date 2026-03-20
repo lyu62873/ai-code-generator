@@ -5,6 +5,7 @@ import lombok.Data;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+/** LoginUserVO implementation. */
 @Data
 public class LoginUserVO implements Serializable {
 

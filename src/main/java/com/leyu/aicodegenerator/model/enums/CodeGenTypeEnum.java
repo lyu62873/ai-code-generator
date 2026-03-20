@@ -3,6 +3,7 @@ package com.leyu.aicodegenerator.model.enums;
 import cn.hutool.core.util.ObjUtil;
 import lombok.Getter;
 
+/** CodeGenTypeEnum implementation. */
 @Getter
 public enum CodeGenTypeEnum {
 

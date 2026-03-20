@@ -11,6 +11,7 @@ public class CodeParserExecutor {
 
     private static final HtmlCodeParser htmlCodeParser = new HtmlCodeParser();
     private static final MultiFileCodeParser multiFileCodeParser = new MultiFileCodeParser();
+/** Vue Project Code Parser. */
     private static final VueProjectCodeParser vueProjectCodeParser = new VueProjectCodeParser();
 
     /**

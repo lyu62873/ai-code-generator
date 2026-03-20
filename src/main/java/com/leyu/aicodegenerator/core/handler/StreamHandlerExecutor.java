@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
+/** Do Execute. */
 @Component
 @Slf4j
 public class StreamHandlerExecutor {
@@ -18,6 +19,7 @@ public class StreamHandlerExecutor {
     private SimpleTextStreamHandler simpleTextStreamHandler;
 
 
+/** Do Execute. */
     public Flux<String> doExecute(Flux<String> originFlux, long appId, User loginUser, CodeGenTypeEnum codeGenTypeEnum) {
         return switch (codeGenTypeEnum) {
             case VUE_PROJECT -> jsonMessageStreamHandler.handle(originFlux, appId, loginUser);

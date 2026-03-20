@@ -15,6 +15,7 @@ public class MultiCodeFileSaverTemplate extends CodeFileSaverTemplate<MultiFileC
         return CodeGenTypeEnum.MULTI_FILE;
     }
 
+/** Add the provided record and persist it to storage. */
     @Override
     protected void saveFiles(MultiFileCodeResult result, String baseDirPath) {
         writeToFile(baseDirPath, "index.html", result.getHtmlCode());
@@ -22,6 +23,7 @@ public class MultiCodeFileSaverTemplate extends CodeFileSaverTemplate<MultiFileC
         writeToFile(baseDirPath, "script.js", result.getJsCode());
     }
 
+/** Validate Input. */
     @Override
     protected void validateInput(MultiFileCodeResult result) {
         super.validateInput(result);

@@ -14,6 +14,7 @@ import java.io.Serializable;
  *
  * @author Lyu
  */
+/** AppQueryRequest implementation. */
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class AppQueryRequest extends PageRequest implements Serializable {

@@ -16,6 +16,7 @@ import org.springframework.web.servlet.HandlerMapping;
 
 import java.io.File;
 
+/** StaticResourceController implementation. */
 @RestController
 @RequestMapping("/static")
 public class StaticResourceController {
@@ -63,8 +64,7 @@ public class StaticResourceController {
     }
 
     /**
-     * 根据文件扩展名返回带字符编码的 Content-Type
-     * return Content-Type with charset depending on file extension
+     * Return Content-Type with charset depending on file extension.
      */
     private String getContentTypeWithCharset(String filePath) {
         if (filePath.endsWith(".html")) return "text/html; charset=UTF-8";

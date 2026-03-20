@@ -35,3 +35,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### langgraph4j ###
+src/main/java/com/leyu/aicodegenerator/langgraph4j/

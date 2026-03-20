@@ -2,6 +2,7 @@ package com.leyu.aicodegenerator.common;
 
 import lombok.Data;
 
+/** PageRequest implementation. */
 @Data
 public class PageRequest {
 

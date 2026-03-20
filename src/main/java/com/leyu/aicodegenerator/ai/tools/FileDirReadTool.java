@@ -19,6 +19,7 @@ import java.util.Set;
 /*
  * File Directory Reading Tool
  */
+/** Of. */
 @Slf4j
 @Component
 public class FileDirReadTool extends BaseTool {
@@ -105,16 +106,19 @@ public class FileDirReadTool extends BaseTool {
         return IGNORED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
     }
 
+/** Return the tool name exposed to the agent runtime. */
     @Override
     public String getToolName() {
         return "readDir";
     }
 
+/** Return a user-facing display name for this tool. */
     @Override
     public String getDisplayName() {
         return "Read Directory Structure";
     }
 
+/** Format the tool execution result for inclusion in chat history. */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");

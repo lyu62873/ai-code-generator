@@ -40,6 +40,7 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
 
 
 
+/** Remove the target data for the given parameters. */
     @Override
     public boolean removeByAppId(Long appId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "Invalid app id");
@@ -47,6 +48,7 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
         return remove(queryWrapper);
     }
 
+/** Add the provided record and persist it to storage. */
     @Override
     public boolean addChatMessage(Long appId, String message, String messageType, Long userId) {
         ThrowUtils.throwIf(userId == null || userId <= 0, ErrorCode.PARAMS_ERROR, "User id cannot be null");
@@ -68,6 +70,7 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
         return save(chatHistory);
     }
 
+/** Build QueryWrapper filters based on the provided query request. */
     @Override
     public QueryWrapper getQueryWrapper(ChatHistoryQueryRequest queryRequest) {
         QueryWrapper queryWrapper = QueryWrapper.create();
@@ -97,6 +100,7 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
 
     }
 
+/** List paged results based on the request and permission checks. */
     @Override
     public Page<ChatHistory> listAppChatHistoryByPage(Long appId, int pageSize, LocalDateTime lastCreateTime, User loginUser) {
         ThrowUtils.throwIf(pageSize <= 0 || pageSize > 50, ErrorCode.PARAMS_ERROR, "Invalid page size, not in 1-50");
@@ -117,6 +121,7 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
         return page(Page.of(1, pageSize), queryWrapper);
     }
 
+/** Load Chat History To Memory. */
     @Override
     public int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount) {
         try {

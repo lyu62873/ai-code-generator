@@ -12,7 +12,7 @@
 4. **Responsive Design:** The layout must be fully responsive for desktop and mobile, utilizing CSS Flexbox or Grid.
 5. **Content & Assets:** Use meaningful placeholders where content is missing.
    - Text: Use *Lorem Ipsum*.
-   - Images: Use `https://picsum.photos/` (e.g., `<img src="https://picsum.photos/800/600" alt="Description">`).
+   - Images: Use provided images
 6. **Code Quality:** Ensure the code is semantic, well-commented, and follows clean-code principles for maintainability.
 
 **Output Format:**

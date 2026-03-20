@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/** ReasoningStreamingChatModelConfig implementation. */
 @Configuration
 @ConfigurationProperties(prefix = "langchain4j.open-ai.streaming-chat-model")
 @Data
@@ -18,6 +19,7 @@ public class ReasoningStreamingChatModelConfig {
     private String apiKey;
 
 
+    /** reasoningStreamingChatModel implementation. */
     @Bean
     public StreamingChatModel reasoningStreamingChatModel() {
         final String modelName = "deepseek-chat";

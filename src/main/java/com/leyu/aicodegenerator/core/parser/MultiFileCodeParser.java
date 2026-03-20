@@ -12,6 +12,7 @@ public class MultiFileCodeParser implements CodeParser<MultiFileCodeResult> {
 
     private static final Pattern HTML_CODE_PATTERN = Pattern.compile("```html\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern CSS_CODE_PATTERN = Pattern.compile("```css\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+/** Compile. */
     private static final Pattern JS_CODE_PATTERN = Pattern.compile("```(?:js|javascript)\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
 
 
@@ -43,6 +44,7 @@ public class MultiFileCodeParser implements CodeParser<MultiFileCodeResult> {
     }
 
 
+/** Extract Code By Pattern. */
     private String extractCodeByPattern(String content, Pattern pattern) {
         Matcher matcher = pattern.matcher(content);
         if (matcher.find()) {

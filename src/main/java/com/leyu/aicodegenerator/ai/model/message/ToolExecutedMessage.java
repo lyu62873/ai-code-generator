@@ -22,6 +22,7 @@ public class ToolExecutedMessage extends StreamMessage {
 
     private String result;
 
+/** Tool Executed Message. */
     public ToolExecutedMessage(ToolExecution toolExecution) {
         super(StreamMessageTypeEnum.TOOL_EXECUTED.getValue());
         this.id = toolExecution.request().id();

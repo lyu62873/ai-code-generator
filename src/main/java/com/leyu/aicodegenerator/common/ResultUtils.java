@@ -2,6 +2,7 @@ package com.leyu.aicodegenerator.common;
 
 import com.leyu.aicodegenerator.exception.ErrorCode;
 
+/** ResultUtils implementation. */
 public class ResultUtils {
 
     // SUCCESS
@@ -9,6 +10,7 @@ public class ResultUtils {
         return new BaseResponse<>(0, data, "OK");
     }
 
+    /** success implementation. */
     public static <T> BaseResponse<T> success() {
         return new BaseResponse<>(0, null, "OK");
     }
@@ -18,6 +20,7 @@ public class ResultUtils {
         return new BaseResponse<>(errorCode);
     }
 
+    /** error implementation. */
     public static BaseResponse<?> error(int code, String message) {
         return new BaseResponse<>(code, null, message);
     }

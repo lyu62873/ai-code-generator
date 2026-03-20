@@ -8,6 +8,7 @@ import com.zaxxer.hikari.HikariDataSource;
 
 import java.util.Map;
 
+/** MyBatisCodeGenerator implementation. */
 public class MyBatisCodeGenerator {
 
     // Table to generate code
@@ -37,6 +38,7 @@ public class MyBatisCodeGenerator {
     }
 
     // see: https://mybatis-flex.com/zh/others/codegen.html
+    /** createGlobalConfig implementation. */
     public static GlobalConfig createGlobalConfig() {
         // Create config
         GlobalConfig globalConfig = new GlobalConfig();

@@ -1,6 +1,7 @@
 package com.leyu.aicodegenerator.langgraph4j.tools;
 
-import com.leyu.aicodegenerator.langgraph4j.state.ImageResource;
+import com.leyu.aicodegenerator.ai.tools.UndrawIllustrationTool;
+import com.leyu.aicodegenerator.entity.ImageResource;
 import com.leyu.aicodegenerator.model.enums.ImageCategoryEnum;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Test;

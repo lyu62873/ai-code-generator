@@ -4,7 +4,7 @@ import com.mybatisflex.core.BaseMapper;
 import com.leyu.aicodegenerator.entity.App;
 
 /**
- * application 映射层。
+ * Application mapper layer.
  *
  * @author Lyu
  */

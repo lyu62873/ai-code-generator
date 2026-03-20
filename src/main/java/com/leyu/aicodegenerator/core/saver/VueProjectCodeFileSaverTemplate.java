@@ -1,8 +1,9 @@
 package com.leyu.aicodegenerator.core.saver;
 
-import com.leyu.aicodegenerator.ai.model.VueProjectCodeResult; // 这是上一步建议你创建的空模型
+import com.leyu.aicodegenerator.ai.model.VueProjectCodeResult; // An empty model recommended in the previous step
 import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 
+/** Get Code Type. */
 public class VueProjectCodeFileSaverTemplate extends CodeFileSaverTemplate<VueProjectCodeResult> {
 
     @Override
@@ -10,6 +11,7 @@ public class VueProjectCodeFileSaverTemplate extends CodeFileSaverTemplate<VuePr
         return CodeGenTypeEnum.VUE_PROJECT;
     }
 
+/** Add the provided record and persist it to storage. */
     @Override
     protected void saveFiles(VueProjectCodeResult result, String baseDirPath) {
     }

@@ -16,10 +16,11 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * application 实体类。
+ * Application entity class.
  *
  * @author Lyu
  */
+/** App implementation. */
 @Data
 @Builder
 @NoArgsConstructor

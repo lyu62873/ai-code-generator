@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.io.Serializable;
 
+/** UserUpdateRequest implementation. */
 @Data
 public class UserUpdateRequest implements Serializable {
 

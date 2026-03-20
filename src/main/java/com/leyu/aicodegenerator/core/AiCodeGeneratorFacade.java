@@ -1,5 +1,6 @@
 package com.leyu.aicodegenerator.core;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.leyu.aicodegenerator.ai.AiCodeGeneratorService;
 import com.leyu.aicodegenerator.ai.AiCodeGeneratorServiceFactory;
@@ -8,6 +9,8 @@ import com.leyu.aicodegenerator.ai.model.MultiFileCodeResult;
 import com.leyu.aicodegenerator.ai.model.message.AiResponseMessage;
 import com.leyu.aicodegenerator.ai.model.message.ToolExecutedMessage;
 import com.leyu.aicodegenerator.ai.model.message.ToolRequestMessage;
+import com.leyu.aicodegenerator.constant.AppConstant;
+import com.leyu.aicodegenerator.core.builder.VueProjectBuilder;
 import com.leyu.aicodegenerator.core.parser.CodeParserExecutor;
 import com.leyu.aicodegenerator.core.saver.CodeFileSaverExecutor;
 import com.leyu.aicodegenerator.exception.BusinessException;
@@ -16,6 +19,7 @@ import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.service.TokenStream;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -30,6 +34,8 @@ public class AiCodeGeneratorFacade {
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
+    @Autowired
+    private VueProjectBuilder vueProjectBuilder;
 
     /**
      *
@@ -38,6 +44,7 @@ public class AiCodeGeneratorFacade {
      * @param codeGenTypeEnum
      * @return
      */
+/** Generate output for the request (and persist/upload as needed). */
     public File generateAndSaveCode(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId) {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Generation type is null");
@@ -84,7 +91,7 @@ public class AiCodeGeneratorFacade {
             }
             case VUE_PROJECT -> {
                 TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
-                yield processTokenStream(tokenStream);
+                yield processTokenStream(tokenStream, appId);
             }
             default -> {
                 String errorMessage = "Unsupported generation type：" + codeGenTypeEnum.getValue();
@@ -116,13 +123,17 @@ public class AiCodeGeneratorFacade {
     }
 
 
-    private Flux<String> processTokenStream(TokenStream tokenStream) {
+/** Process Token Stream. */
+    private Flux<String> processTokenStream(TokenStream tokenStream, Long appId) {
         return Flux.create(sink -> {
             tokenStream.onPartialResponse(partialResponse -> {
                 AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
                 sink.next(JSONUtil.toJsonStr(aiResponseMessage));
             })
                     .onPartialToolExecutionRequest((index, toolExecutionRequest) -> {
+                        if (toolExecutionRequest == null || StrUtil.isBlank(toolExecutionRequest.name())) {
+                            return;
+                        }
                         ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolExecutionRequest);
                         sink.next(JSONUtil.toJsonStr(toolRequestMessage));
                     })
@@ -131,6 +142,8 @@ public class AiCodeGeneratorFacade {
                         sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
                     })
                     .onCompleteResponse(response -> {
+                        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + "vue_project_" + appId;
+                        vueProjectBuilder.buildProject(projectPath);
                         sink.complete();
                     })
                     .onError(e -> {

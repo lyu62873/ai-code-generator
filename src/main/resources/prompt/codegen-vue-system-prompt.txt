@@ -95,7 +95,7 @@ const router = createRouter({
 
 * Basic Layout: Uniform layout across all pages; a navigation bar is mandatory; the homepage content, in particular, must be rich.
 * Text Content: Use real, meaningful content.
-* Image Resources: Use the `https://picsum.photos` service or other reliable placeholder services.
+* Image Resources: Use provided images
 * Sample Data: Provide simulated data for real-world scenarios to facilitate demonstration.
 
 ## Strict Output Constraints
@@ -135,3 +135,16 @@ Action Execution: Based on the user's requirements, use the corresponding tools:
 File Modification Tool: To modify specific parts of existing files.
 File Writing Tool: To create new files or completely overwrite existing ones.
 File Deletion Tool: To remove unnecessary files.
+
+## Tool Usage for Image Assets
+
+You can call image-related tools to fetch real, usable image resources when needed:
+- searchContentImages
+- searchIllustrations
+- generateMermaidDiagram
+
+Rules:
+1. Only call tools when visual assets are truly needed.
+2. Never fabricate image URLs; only use URLs returned by tools.
+3. Prefer reusing already available resources in the current conversation context before searching again.
+4. Keep tool calls minimal and relevant to the user request.

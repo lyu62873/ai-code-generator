@@ -21,6 +21,7 @@ import java.io.File;
 import java.time.Duration;
 import java.util.UUID;
 
+/** WebScreenshotUtils implementation. */
 @Slf4j
 public class WebScreenshotUtils {
 
@@ -32,6 +33,7 @@ public class WebScreenshotUtils {
         webDriver = initChromeDriver(DEFAULT_WIDTH, DEFAULT_HEIGHT);
     }
 
+    /** destroy implementation. */
     @PreDestroy
     public void destroy() {
         webDriver.quit();
@@ -73,6 +75,7 @@ public class WebScreenshotUtils {
         }
     }
 
+    /** saveImage implementation. */
     private static void saveImage(byte[]  imageBytes, String imagePath) {
         try {
             FileUtil.writeBytes(imageBytes, imagePath);
@@ -82,6 +85,7 @@ public class WebScreenshotUtils {
         }
     }
 
+    /** compressImage implementation. */
     private static void compressImage(String originalImagePath, String compressedImagePath) {
         final float COMPRESSION_QUALITY = 0.3f;
         try {
@@ -96,6 +100,7 @@ public class WebScreenshotUtils {
         }
     }
 
+    /** waitForPageLoad implementation. */
     private static void waitForPageLoad(WebDriver driver) {
         try {
             WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));
@@ -107,6 +112,7 @@ public class WebScreenshotUtils {
         }
     }
 
+    /** saveWebPageScreenshot implementation. */
     public static String saveWebPageScreenshot(String webUrl) {
         if (StrUtil.isBlank(webUrl)) {
             log.error("webUrl is empty");

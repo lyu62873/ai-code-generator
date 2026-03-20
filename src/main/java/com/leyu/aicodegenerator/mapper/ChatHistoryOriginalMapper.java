@@ -4,7 +4,7 @@ import com.mybatisflex.core.BaseMapper;
 import com.leyu.aicodegenerator.entity.ChatHistoryOriginal;
 
 /**
- *  映射层。
+ * Mapper layer.
  *
  * @author Lyu
  */

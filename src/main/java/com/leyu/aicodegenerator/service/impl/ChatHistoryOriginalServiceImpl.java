@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
  *
  * @author Lyu
  */
+/** Add the provided record and persist it to storage. */
 @Service
 @Slf4j
 public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOriginalMapper, ChatHistoryOriginal>  implements ChatHistoryOriginalService{
@@ -51,6 +52,7 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
         return this.save(chatHistoryOriginal);
     }
 
+/** Add the provided record and persist it to storage. */
     @Override
     public boolean addOriginalChatMessageBatch(List<ChatHistoryOriginal> chatHistoryOriginalList) {
         ThrowUtils.throwIf(chatHistoryOriginalList == null || chatHistoryOriginalList.isEmpty(),
@@ -75,6 +77,7 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
     }
 
 
+/** Remove the target data for the given parameters. */
     @Override
     public boolean deleteByAppId(Long appId) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "App Id cannot be null");
@@ -83,6 +86,7 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
         return this.remove(queryWrapper);
     }
 
+/** Load Original Chat History To Memory. */
     @Override
     public int loadOriginalChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount) {
         try{
@@ -106,32 +110,35 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
     }
 
     /**
-     * 查询历史记录，考虑边缘记录类型
-     * 工具调用信息必须是成对并且有序的: tool_request -> tool_result，否则就会报错！
-     * 错误信息：dev.langchain4j.exception.HttpException: {"error":{"message":"Messages with role 'tool' must be a response to a preceding message with 'tool_calls'","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}
-     *     1. 边缘检查的意义在于当查询到的第 maxCount + 1 那条数据是 tool_result 时就丢失了一条 tool_request，导致报错
-     *     2. 这里改为了按 id 倒序查询，时间戳排序可能因为相近值而不稳定，当 tool_request 和 tool_result 的顺序加载错了会导致报错（MyBatis-flex的雪花算法生成的ID是严格递增的）
+     * Query chat history records, taking edge record types into account.
+     * Tool call info must be paired and ordered: tool_request -> tool_result; otherwise it will throw an error!
+     * Error message: dev.langchain4j.exception.HttpException: {"error":{"message":"Messages with role 'tool' must be a response to a preceding message with 'tool_calls'","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}
+     *     1. Edge checking matters because when the record at maxCount + 1 is tool_result, one tool_request is missing, which causes the error.
+     *     2. This was changed to query in descending order by id. Timestamp ordering may be unstable when values are close.
+     *        If tool_request and tool_result are loaded in the wrong order, it will also cause an error
+     *        (MyBatis-flex snowflake IDs are strictly increasing).
      *
-     * @param appId 应用ID
-     * @param maxCount 最大记录数
-     * @return 历史记录列表
+     * @param appId Application ID
+     * @param maxCount Maximum record count
+     * @return History record list
      */
+/** Query History With Edge Check. */
     private List<ChatHistoryOriginal> queryHistoryWithEdgeCheck(Long appId, int maxCount) {
-        // 1. 首先检查总记录数
+        // 1. First, check the total record count
         QueryWrapper countQueryWrapper = QueryWrapper.create()
                 .eq(ChatHistoryOriginal::getAppId, appId);
         long totalCount = this.count(countQueryWrapper);
 
-        // 2. 如果总记录数小于等于1，直接返回空列表（因为我们要跳过第1条记录）
+        // 2. If totalCount <= 1, return an empty list (because we skip the first record)
         if (totalCount <= 1) {
             log.debug("Record number ({}) <= 1，no enough history to load", totalCount);
             return Collections.emptyList();
         }
 
-        // 3. 计算实际可查询的最大记录数（减去要跳过的第1条记录）
+        // 3. Calculate the actual maximum number of records we can query (minus the first record we skip)
         long availableCount = totalCount - 1;
 
-        // 4. 如果总记录数小于等于 maxCount+1，则不需要检查边缘记录
+        // 4. If totalCount <= maxCount+1, edge checking is not needed
         if (totalCount <= maxCount + 1) {
             log.debug("Record number ({}) <= maxCount+1 ({}), doesn't need edge check", totalCount, maxCount + 1);
 
@@ -144,16 +151,16 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
             return this.list(queryWrapper);
         }
 
-        // 5. 如果总记录数大于 maxCount+1，则需要检查边缘记录
-        // 查询第 maxCount+1 条记录（边缘记录）
+        // 5. If totalCount > maxCount+1, we need to check the edge records
+        // Query the (maxCount+1)-th record (edge record)
         QueryWrapper edgeQueryWrapper = QueryWrapper.create()
                 .eq(ChatHistoryOriginal::getAppId, appId)
                 .orderBy(ChatHistoryOriginal::getId, false)
-                .limit(maxCount, 1);  // 查询第 maxCount+1 条记录
+                .limit(maxCount, 1);  // Query the (maxCount+1)-th record
 
         ChatHistoryOriginal edgeRecord = this.getOne(edgeQueryWrapper);
 
-        // 6. 如果边缘记录是 TOOL_EXECUTION_RESULT 类型，则需要额外查询其前一条 TOOL_EXECUTION_REQUEST 记录
+        // 6. If the edge record is TOOL_EXECUTION_RESULT, query the preceding TOOL_EXECUTION_REQUEST record as well
         boolean needExtraRequest = false;
         if (edgeRecord != null) {
             String edgeMessageType = edgeRecord.getMessageType();
@@ -161,38 +168,38 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
             needExtraRequest = (edgeMessageTypeEnum == ChatHistoryMessageTypeEnum.TOOL_EXECUTION_RESULT);
         }
 
-        // 7. 计算实际需要查询的记录数
+        // 7. Calculate the actual number of records to query
         long actualLimit = Math.min(needExtraRequest ? maxCount + 1 : maxCount, availableCount);
 
-        // 8. 查询历史记录
+        // 8. Query history records
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .eq(ChatHistoryOriginal::getAppId, appId)
                 .orderBy(ChatHistoryOriginal::getId, false)
-                .limit(1, actualLimit);  // 查询从第2条开始的 actualLimit 条记录
+                .limit(1, actualLimit);  // Query actualLimit records starting from the 2nd record
 
         List<ChatHistoryOriginal> originalHistoryList = this.list(queryWrapper);
         if (CollUtil.isEmpty(originalHistoryList)) {
             return Collections.emptyList();
         }
 
-        // 9. 检查是否需要调整 maxCount
+        // 9. Check whether we need to adjust maxCount
         if (needExtraRequest && originalHistoryList.size() <= maxCount) {
-            // 如果需要额外的 TOOL_EXECUTION_REQUEST 但没有获取到足够的记录
+            // If we needed an extra TOOL_EXECUTION_REQUEST but didn't get enough records
             log.warn("Edge record is of type TOOL_EXECUTION_RESULT, but no corresponding TOOL_EXECUTION_REQUEST was found. Decrementing maxCount by 1.");
-            maxCount = Math.max(0, maxCount - 1);  // 确保 maxCount 不小于 0
+            maxCount = Math.max(0, maxCount - 1);  // Ensure maxCount is not less than 0
 
-            // 如果 maxCount 变为 0，则直接返回空列表
+            // If maxCount becomes 0, return an empty list
             if (maxCount == 0) {
                 log.info("Adjusted maxCount is 0; no history records will be loaded.");
                 return Collections.emptyList();
             }
 
-            // 重新查询，使用调整后的 maxCount
+            // Re-query using the adjusted maxCount
             actualLimit = Math.min(maxCount, availableCount);
             queryWrapper = QueryWrapper.create()
                     .eq(ChatHistoryOriginal::getAppId, appId)
                     .orderBy(ChatHistoryOriginal::getId, false)
-                    .limit(1, actualLimit);  // 查询从第2条开始的 actualLimit 条记录
+                    .limit(1, actualLimit);  // Query actualLimit records starting from the 2nd record
 
             originalHistoryList = this.list(queryWrapper);
             if (CollUtil.isEmpty(originalHistoryList)) {
@@ -204,17 +211,18 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
     }
 
     /**
-     * 将历史记录加载到内存中
+     * Load history records into memory.
      *
-     * @param originalHistoryList 历史记录列表
-     * @param chatMemory 聊天记忆
-     * @return 加载的记录数
+     * @param originalHistoryList History record list
+     * @param chatMemory Chat memory
+     * @return Loaded record count
      */
+/** Load Messages To Memory. */
     private int loadMessagesToMemory(List<ChatHistoryOriginal> originalHistoryList, MessageWindowChatMemory chatMemory) {
         int loadedCount = 0;
-        // 遍历原始历史记录，根据类型将消息添加到记忆中
+        // Iterate original history records and add messages to memory by type
         for(ChatHistoryOriginal history : originalHistoryList) {
-            // 这里需要根据消息类型进行转换，支持 AI, user, toolExecutionRequest, toolExecutionResult 4种类型
+            // Convert based on message type; supported types: AI, user, toolExecutionRequest, toolExecutionResult
             String messageType = history.getMessageType();
             ChatHistoryMessageTypeEnum messageTypeEnum = ChatHistoryMessageTypeEnum.getEnumByValue(messageType);
             switch (messageTypeEnum) {
@@ -233,7 +241,7 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
                             .name(toolRequestMessage.getName())
                             .arguments(toolRequestMessage.getArguments())
                             .build();
-                    // 有些工具调用请求带有文本，有些没有
+                    // Some tool request messages include text; others don't
                     if (toolRequestMessage.getText().isEmpty()) {
                         chatMemory.add(AiMessage.from(List.of(toolExecutionRequest)));
                     } else {

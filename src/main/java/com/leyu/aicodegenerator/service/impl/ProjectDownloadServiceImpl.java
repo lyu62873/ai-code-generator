@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Set;
 
+/** Of. */
 @Service
 @Slf4j
 public class ProjectDownloadServiceImpl implements ProjectDownloadService {
@@ -52,6 +53,7 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
      * @param fullPath
      * @return
      */
+/** Is Path Allowed. */
     private boolean isPathAllowed(Path projectRoot, Path fullPath) {
 
         Path relativePath = projectRoot.relativize(fullPath);
@@ -70,6 +72,7 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
         return true;
     }
 
+/** Download Project As Zip. */
     @Override
     public void downloadProjectAsZip(String projectPath, String downloadFileName, HttpServletResponse response) {
         //

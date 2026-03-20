@@ -10,6 +10,7 @@ import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 
+/** Get Property. */
 @Deprecated
 public class CodeFileSaver {
 

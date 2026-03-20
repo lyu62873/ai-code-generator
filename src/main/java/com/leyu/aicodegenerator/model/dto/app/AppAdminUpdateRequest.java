@@ -11,6 +11,7 @@ import java.io.Serializable;
  *
  * @author Lyu
  */
+/** AppAdminUpdateRequest implementation. */
 @Data
 public class AppAdminUpdateRequest implements Serializable {
 

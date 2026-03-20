@@ -3,6 +3,7 @@ package com.leyu.aicodegenerator.model.enums;
 import cn.hutool.core.util.ObjUtil;
 import lombok.Getter;
 
+/** ChatHistoryMessageTypeEnum implementation. */
 @Getter
 public enum ChatHistoryMessageTypeEnum {
 
@@ -21,10 +22,10 @@ public enum ChatHistoryMessageTypeEnum {
     }
 
     /**
-     * 根据 value 获取枚举
+     * Get enum by its value.
      *
-     * @param value 枚举值的value
-     * @return 枚举值
+     * @param value Enum value.
+     * @return Matched enum value.
      */
     public static ChatHistoryMessageTypeEnum getEnumByValue(String value) {
         if (ObjUtil.isEmpty(value)) {

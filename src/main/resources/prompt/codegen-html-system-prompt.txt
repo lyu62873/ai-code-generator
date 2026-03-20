@@ -11,7 +11,7 @@
 4. **Responsive Design:** The layout must be fully responsive, optimized for both desktop and mobile devices using CSS Flexbox or Grid.
 5. **Content & Assets:** Use meaningful placeholders if specific content is missing. 
    - Text: Use *Lorem Ipsum*. 
-   - Images: Use `https://picsum.photos/` (e.g., `<img src="https://picsum.photos/800/600" alt="Description">`).
+   - Images: Use provided images
 6. **Interactivity:** Implement all requested interactive features (e.g., tabs, image sliders, modal popups, form validation) using **Vanilla JavaScript**.
 7. **Code Quality:** Ensure the code is semantic, well-commented, and follows modern best practices for readability.
 8. **Security:** This is a client-side-only task. Do not include any server-side logic.

@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 
+/** Write File. */
 @Slf4j
 @Component
 public class FileWriteTool extends BaseTool {
@@ -51,16 +52,19 @@ public class FileWriteTool extends BaseTool {
         }
     }
 
+/** Return the tool name exposed to the agent runtime. */
     @Override
     public String getToolName() {
         return "writeFile";
     }
 
+/** Return a user-facing display name for this tool. */
     @Override
     public String getDisplayName() {
         return "Write File";
     }
 
+/** Format the tool execution result for inclusion in chat history. */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");

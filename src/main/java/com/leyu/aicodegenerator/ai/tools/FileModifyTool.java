@@ -59,16 +59,19 @@ public class FileModifyTool extends BaseTool {
         }
     }
 
+/** Return the tool name exposed to the agent runtime. */
     @Override
     public String getToolName() {
         return "modifyFile";
     }
 
+/** Return a user-facing display name for this tool. */
     @Override
     public String getDisplayName() {
         return "File Modification";
     }
 
+/** Format the tool execution result for inclusion in chat history. */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");

@@ -5,6 +5,7 @@ import lombok.Data;
 import java.io.Serial;
 import java.io.Serializable;
 
+/** AppDeployRequest implementation. */
 @Data
 public class AppDeployRequest implements Serializable {
 

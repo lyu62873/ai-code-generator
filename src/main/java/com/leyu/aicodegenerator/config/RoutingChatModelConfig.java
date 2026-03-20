@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.time.Duration;
 
+/** RoutingChatModelConfig implementation. */
 @Configuration
 @ConfigurationProperties(prefix = "langchain4j.open-ai.routing-chat-model")
 @Data
@@ -27,6 +28,7 @@ public class RoutingChatModelConfig {
     private Integer timeout;
 
 
+    /** routingChatModel implementation. */
     @Bean(name = "routingChatModel")
     public ChatModel routingChatModel() {
 

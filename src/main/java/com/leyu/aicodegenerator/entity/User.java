@@ -20,6 +20,7 @@ import lombok.NoArgsConstructor;
  *
  * @author Lyu
  */
+/** User implementation. */
 @Data
 @Builder
 @NoArgsConstructor

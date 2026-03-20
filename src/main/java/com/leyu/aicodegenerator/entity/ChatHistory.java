@@ -20,6 +20,7 @@ import lombok.NoArgsConstructor;
  *
  * @author Lyu
  */
+/** ChatHistory implementation. */
 @Data
 @Builder
 @NoArgsConstructor

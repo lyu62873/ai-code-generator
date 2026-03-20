@@ -1,13 +1,14 @@
-package com.leyu.aicodegenerator.langgraph4j.tools;
+package com.leyu.aicodegenerator.ai.tools;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.RuntimeUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 import cn.hutool.system.SystemUtil;
+import com.leyu.aicodegenerator.entity.ImageResource;
 import com.leyu.aicodegenerator.exception.BusinessException;
 import com.leyu.aicodegenerator.exception.ErrorCode;
-import com.leyu.aicodegenerator.langgraph4j.state.ImageResource;
 import com.leyu.aicodegenerator.manager.CosManager;
 import com.leyu.aicodegenerator.model.enums.ImageCategoryEnum;
 import dev.langchain4j.agent.tool.P;
@@ -21,9 +22,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/** Generate output for the request (and persist/upload as needed). */
 @Slf4j
 @Component
-public class MermaidDiagramTool {
+public class MermaidDiagramTool extends BaseTool {
 
     @Resource
     private CosManager cosManager;
@@ -35,13 +37,13 @@ public class MermaidDiagramTool {
             return new ArrayList<>();
         }
         try {
-            // 转换为SVG图片
+            // Convert to an SVG image
             File diagramFile = convertMermaidToSvg(mermaidCode);
-            // 上传到COS
+            // Upload to COS
             String keyName = String.format("/mermaid/%s/%s",
                     RandomUtil.randomString(5), diagramFile.getName());
             String cosUrl = cosManager.uploadFile(keyName, diagramFile);
-            // 清理临时文件
+            // Clean up temporary files
             FileUtil.del(diagramFile);
             if (StrUtil.isNotBlank(cosUrl)) {
                 return Collections.singletonList(ImageResource.builder()
@@ -57,30 +59,49 @@ public class MermaidDiagramTool {
     }
 
     /**
-     * 将Mermaid代码转换为SVG图片
+     * Convert Mermaid code into an SVG image.
      */
     private File convertMermaidToSvg(String mermaidCode) {
-        // 创建临时输入文件
+        // Create a temporary input file
         File tempInputFile = FileUtil.createTempFile("mermaid_input_", ".mmd", true);
         FileUtil.writeUtf8String(mermaidCode, tempInputFile);
-        // 创建临时输出文件
+        // Create a temporary output file
         File tempOutputFile = FileUtil.createTempFile("mermaid_output_", ".svg", true);
-        // 根据操作系统选择命令
+        // Pick the command based on the OS
         String command = SystemUtil.getOsInfo().isWindows() ? "mmdc.cmd" : "mmdc";
-        // 构建命令
+        // Build the command
         String cmdLine = String.format("%s -i %s -o %s -b transparent",
                 command,
                 tempInputFile.getAbsolutePath(),
                 tempOutputFile.getAbsolutePath()
         );
-        // 执行命令
+        // Execute the command
         RuntimeUtil.execForStr(cmdLine);
-        // 检查输出文件
+        // Check the output file
         if (!tempOutputFile.exists() || tempOutputFile.length() == 0) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Mermaid CLI execution failed");
         }
-        // 清理输入文件，保留输出文件供上传使用
+        // Delete input file; keep the output file for upload
         FileUtil.del(tempInputFile);
         return tempOutputFile;
+    }
+
+/** Return the tool name exposed to the agent runtime. */
+    @Override
+    public String getToolName() {
+        return "searchMermaidDiagramImages";
+    }
+
+/** Return a user-facing display name for this tool. */
+    @Override
+    public String getDisplayName() {
+        return "Search Mermaid Diagram Images";
+    }
+
+/** Format the tool execution result for inclusion in chat history. */
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments) {
+        String query = arguments.getStr("query");
+        return String.format("[Tool Executed] %s query=%s", getDisplayName(), query);
     }
 }

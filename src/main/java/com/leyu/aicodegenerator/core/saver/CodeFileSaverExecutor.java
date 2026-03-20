@@ -9,6 +9,7 @@ import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 
 import java.io.File;
 
+/** Html Code File Saver Template. */
 public class CodeFileSaverExecutor {
 
     private static final HtmlCodeFileSaverTemplate htmlCodeFileSaver = new HtmlCodeFileSaverTemplate();
@@ -16,6 +17,7 @@ public class CodeFileSaverExecutor {
     private static final VueProjectCodeFileSaverTemplate vueProjectCodeFileSaver = new VueProjectCodeFileSaverTemplate();
 
 
+/** Execute Saver. */
     public static File executeSaver(Object codeResult, CodeGenTypeEnum codeGenType, Long appId) {
         return switch (codeGenType) {
             case HTML -> htmlCodeFileSaver.saveCode((HtmlCodeResult) codeResult, appId);

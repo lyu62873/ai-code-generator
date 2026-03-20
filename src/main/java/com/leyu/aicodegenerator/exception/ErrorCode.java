@@ -2,6 +2,7 @@ package com.leyu.aicodegenerator.exception;
 
 import lombok.Getter;
 
+/** ErrorCode implementation. */
 @Getter
 public enum ErrorCode {
 
@@ -12,7 +13,8 @@ public enum ErrorCode {
     NOT_FOUND_ERROR(40400, "Data Not Exist"),
     FORBIDDEN_ERROR(40300, "Blocked"),
     SYSTEM_ERROR(50000, "Internal Error"),
-    OPERATION_ERROR(50001, "Operation Fail");
+    OPERATION_ERROR(50001, "Operation Fail"),
+    TOO_MANY_REQUEST(42900, "Too Many Request");
 
 
 

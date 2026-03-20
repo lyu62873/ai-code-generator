@@ -17,6 +17,8 @@ import com.leyu.aicodegenerator.exception.ThrowUtils;
 import com.leyu.aicodegenerator.model.dto.app.*;
 import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 import com.leyu.aicodegenerator.model.vo.app.AppVO;
+import com.leyu.aicodegenerator.ratelimiter.annotation.RateLimit;
+import com.leyu.aicodegenerator.ratelimiter.enums.RateLimitType;
 import com.leyu.aicodegenerator.service.AppService;
 import com.leyu.aicodegenerator.service.ProjectDownloadService;
 import com.leyu.aicodegenerator.service.UserService;
@@ -26,6 +28,9 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
@@ -45,6 +50,7 @@ import java.util.Map;
  *
  * @author Lyu
  */
+/** AppController implementation. */
 @RestController
 @RequestMapping("/app")
 public class AppController {
@@ -57,6 +63,8 @@ public class AppController {
 
     @Resource
     private ProjectDownloadService projectDownloadService;
+    @Resource
+    private CacheManager cacheManager;
 
     // ==================== User Endpoints ====================
 
@@ -166,7 +174,14 @@ public class AppController {
      * Supports fuzzy search by app name. Page size is capped at 20.
      */
     @PostMapping("/good/list/page/vo")
-    public BaseResponse<Page<AppVO>> listFeaturedAppVOByPage(@RequestBody AppQueryRequest appQueryRequest, HttpServletRequest request) {
+    @Cacheable(
+            value = "good_app_page",
+            key = "T(com.leyu.aicodegenerator.utils.CacheKeyUtils).generateKey(#appQueryRequest)",
+            condition = "#appQueryRequest.pageNum <= 10"
+
+    )
+    /** listFeaturedAppVOByPage implementation. */
+    public BaseResponse<Page<AppVO>> listFeaturedAppVOByPage(@RequestBody AppQueryRequest appQueryRequest) {
         ThrowUtils.throwIf(appQueryRequest == null, ErrorCode.PARAMS_ERROR);
 
         int pageSize = appQueryRequest.getPageSize();
@@ -175,6 +190,10 @@ public class AppController {
 
         appQueryRequest.setPriority(AppConstant.GOOD_APP_PRIORITY);
         QueryWrapper queryWrapper = appService.getQueryWrapper(appQueryRequest);
+        queryWrapper
+                .isNotNull("deployedTime")
+                .isNotNull("deployKey")
+                .ne("deployKey", "");
 
         Page<App> appPage = appService.page(
                 Page.of(pageNum, pageSize),
@@ -217,11 +236,25 @@ public class AppController {
         Long id = appAdminUpdateRequest.getId();
         App oldApp = appService.getById(id);
         ThrowUtils.throwIf(oldApp == null, ErrorCode.NOT_FOUND_ERROR);
+        Integer newPriority = appAdminUpdateRequest.getPriority();
+        if (newPriority != null && AppConstant.GOOD_APP_PRIORITY.equals(newPriority)) {
+            boolean deployed = StrUtil.isNotBlank(oldApp.getDeployKey()) && oldApp.getDeployedTime() != null;
+            ThrowUtils.throwIf(!deployed, ErrorCode.OPERATION_ERROR, "Only deployed apps can be featured");
+        }
 
         App app = new App();
         BeanUtil.copyProperties(appAdminUpdateRequest, app);
         boolean result = appService.updateById(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        boolean needClearGoodAppCache = newPriority != null
+                && (AppConstant.GOOD_APP_PRIORITY.equals(newPriority)
+                || AppConstant.GOOD_APP_PRIORITY.equals(oldApp.getPriority()));
+        if (needClearGoodAppCache) {
+            Cache goodAppCache = cacheManager.getCache("good_app_page");
+            if (goodAppCache != null) {
+                goodAppCache.clear();
+            }
+        }
         return ResultUtils.success(true);
     }
 
@@ -261,6 +294,7 @@ public class AppController {
     }
 
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI chat requests are too frequent. Please try again later.")
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                                @RequestParam String message,
                                                HttpServletRequest request) {
@@ -286,6 +320,7 @@ public class AppController {
                 ));
     }
 
+    /** deployApp implementation. */
     @PostMapping("/deploy")
     public BaseResponse<String> deployApp(@RequestBody AppDeployRequest appDeployRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appDeployRequest == null, ErrorCode.PARAMS_ERROR);

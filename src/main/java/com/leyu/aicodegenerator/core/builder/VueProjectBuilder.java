@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import java.io.File;
 import java.util.concurrent.TimeUnit;
 
+/** Build Project Async. */
 @Slf4j
 @Component
 public class VueProjectBuilder {
@@ -21,6 +22,7 @@ public class VueProjectBuilder {
         });
     }
 
+/** Execute Command. */
     private boolean executeCommand(File workingDir, String command, int timeoutSeconds) {
         try {
             log.info("Executing command: " + command + " on working directory: " + workingDir.getAbsolutePath());
@@ -48,12 +50,14 @@ public class VueProjectBuilder {
         }
     }
 
+/** Execute Npm Install. */
     private boolean executeNpmInstall(File projectDir) {
         log.info("Executing npm installation");
         String command = String.format("%s install", buildCommand("npm"));
         return executeCommand(projectDir, command, 300);
     }
 
+/** Execute Npm Build. */
     private boolean executeNpmBuild(File projectDir) {
         log.info("Executing npm build");
         String command = String.format("%s run build", buildCommand("npm"));
@@ -61,6 +65,7 @@ public class VueProjectBuilder {
     }
 
 
+/** Is Windows. */
     private boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().startsWith("windows");
     }
@@ -72,6 +77,7 @@ public class VueProjectBuilder {
         return baseCommand;
     }
 
+/** Build Project. */
     public boolean buildProject(String projectPath) {
         File projectDir = new File(projectPath);
         if (!projectDir.exists() || !projectDir.isDirectory()) {

@@ -16,11 +16,13 @@ public class HtmlCodeFileSaverTemplate extends CodeFileSaverTemplate<HtmlCodeRes
         return CodeGenTypeEnum.HTML;
     }
 
+/** Add the provided record and persist it to storage. */
     @Override
     protected void saveFiles(HtmlCodeResult result, String baseDirPath) {
         writeToFile(baseDirPath, "index.html", result.getHtmlCode());
     }
 
+/** Validate Input. */
     @Override
     protected void validateInput(HtmlCodeResult result) {
         super.validateInput(result);

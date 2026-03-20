@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+/** Method used by this component. */
 @Slf4j
 @Component
 public class ToolManager {
@@ -18,6 +19,7 @@ public class ToolManager {
     @Resource
     private BaseTool[] tools;
 
+/** Init Tools. */
     @PostConstruct
     public void initTools() {
         for (BaseTool tool : tools) {
@@ -27,6 +29,7 @@ public class ToolManager {
         log.info("Tool manager initialized, {} tools in total", toolMap.size());
     }
 
+/** Get Tool. */
     public BaseTool getTool(String toolName) {
         return toolMap.get(toolName);
     }

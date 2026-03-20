@@ -1,6 +1,7 @@
 package com.leyu.aicodegenerator.controller;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.StrUtil;
 import com.leyu.aicodegenerator.annotation.AuthCheck;
 import com.leyu.aicodegenerator.common.BaseResponse;
 import com.leyu.aicodegenerator.common.DeleteRequest;
@@ -32,6 +33,7 @@ import java.util.List;
  *
  * @author Lyu
  */
+/** UserController implementation. */
 @RestController
 @RequestMapping("/user")
 public class UserController {
@@ -45,6 +47,7 @@ public class UserController {
      * @param user 
      * @return {@code true} success {@code false} fail
      */
+    /** save implementation. */
     @PostMapping("save")
     public boolean save(@RequestBody User user) {
         return userService.save(user);
@@ -53,9 +56,10 @@ public class UserController {
     /**
      * delete by id
      *
-     * @param id 主键
+     * @param id Primary key
      * @return {@code true} success，{@code false} fail
      */
+    /** remove implementation. */
     @DeleteMapping("remove/{id}")
     public boolean remove(@PathVariable Long id) {
         return userService.removeById(id);
@@ -67,6 +71,7 @@ public class UserController {
      * @param user 
      * @return {@code true} success，{@code false} fail
      */
+    /** update implementation. */
     @PutMapping("update")
     public boolean update(@RequestBody User user) {
         return userService.updateById(user);
@@ -88,6 +93,7 @@ public class UserController {
      * @param id
      * @return User
      */
+    /** getInfo implementation. */
     @GetMapping("getInfo/{id}")
     public User getInfo(@PathVariable Long id) {
         return userService.getById(id);
@@ -99,6 +105,7 @@ public class UserController {
      * @param page
      * @return Page
      */
+    /** page implementation. */
     @GetMapping("page")
     public Page<User> page(Page<User> page) {
         return userService.page(page);
@@ -128,6 +135,7 @@ public class UserController {
      * @param request
      * @return user vo
      */
+    /** userLogin implementation. */
     @PostMapping("/login")
     public BaseResponse<LoginUserVO> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(userLoginRequest == null, ErrorCode.PARAMS_ERROR);
@@ -237,6 +245,7 @@ public class UserController {
      *
      * @param userQueryRequest
      */
+    /** listUserVOByPage implementation. */
     @PostMapping("/list/page/vo")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Page<UserVO>> listUserVOByPage(@RequestBody UserQueryRequest userQueryRequest) {
@@ -250,6 +259,54 @@ public class UserController {
         List<UserVO> userVOList = userService.getUserVOList(userPage.getRecords());
         userVOPage.setRecords(userVOList);
         return ResultUtils.success(userVOPage);
+    }
+
+    @PostMapping("/update/my")
+    public BaseResponse<Boolean> updateMyUser(@RequestBody UserSelfUpdateRequest req, HttpServletRequest request) {
+        ThrowUtils.throwIf(req == null, ErrorCode.PARAMS_ERROR);
+
+        User loginUser = userService.getLoginUser(request); // login
+        Long loginUserId = loginUser.getId();
+
+        User user = new User();
+        user.setId(loginUserId); // always update login user
+        user.setUserName(req.getUserName());
+        user.setUserProfile(req.getUserProfile());
+        // user.setUserAvatar(req.getUserAvatar()); TODO
+
+        // do not set UserRole
+        boolean result = userService.updateById(user);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+
+        return ResultUtils.success(true);
+    }
+
+    @PostMapping("/password/update/my")
+    public BaseResponse<Boolean> updateMyPassword(
+            @RequestBody UserUpdatePasswordRequest req,
+            HttpServletRequest request
+    ) {
+        ThrowUtils.throwIf(req == null, ErrorCode.PARAMS_ERROR);
+        String oldPassword = req.getOldPassword();
+        String newPassword = req.getNewPassword();
+        String checkPassword = req.getCheckPassword();
+        ThrowUtils.throwIf(StrUtil.hasBlank(oldPassword, newPassword, checkPassword), ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(newPassword.length() < 8, ErrorCode.PARAMS_ERROR, "New password too short");
+        ThrowUtils.throwIf(!newPassword.equals(checkPassword), ErrorCode.PARAMS_ERROR, "Passwords do not match");
+        ThrowUtils.throwIf(newPassword.equals(oldPassword), ErrorCode.PARAMS_ERROR, "New password must differ from old password");
+
+        User loginUser = userService.getLoginUser(request);
+        String oldEncryptPassword = userService.getEncryptPassword(oldPassword);
+        ThrowUtils.throwIf(!oldEncryptPassword.equals(loginUser.getUserPassword()), ErrorCode.PARAMS_ERROR, "Old password is incorrect");
+
+        User user = new User();
+        user.setId(loginUser.getId());
+        user.setUserPassword(userService.getEncryptPassword(newPassword));
+        boolean result = userService.updateById(user);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        // force re-login after password change
+        request.getSession().removeAttribute(UserConstant.USER_LOGIN_STATE);
+        return ResultUtils.success(true);
     }
 
 }

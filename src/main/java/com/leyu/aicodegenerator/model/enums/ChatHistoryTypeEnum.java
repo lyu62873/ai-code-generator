@@ -21,6 +21,7 @@ public enum ChatHistoryTypeEnum {
         this.value = value;
     }
 
+    /** getEnumByValue implementation. */
     public static ChatHistoryTypeEnum getEnumByValue(String value) {
         if (ObjUtil.isEmpty(value)) {
             return null;

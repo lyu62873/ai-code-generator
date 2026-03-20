@@ -6,6 +6,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
+/** UserVO implementation. */
 @Data
 public class UserVO implements Serializable {
 

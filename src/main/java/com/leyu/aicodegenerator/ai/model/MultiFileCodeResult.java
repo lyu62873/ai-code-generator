@@ -3,6 +3,7 @@ package com.leyu.aicodegenerator.ai.model;
 import jdk.jfr.Description;
 import lombok.Data;
 
+/** Method used by this component. */
 @Description("Result of generating multiple codes")
 @Data
 public class MultiFileCodeResult {

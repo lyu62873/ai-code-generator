@@ -18,6 +18,7 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+/** AuthInterceptor implementation. */
 @Aspect
 @Component
 public class AuthInterceptor {
@@ -26,6 +27,7 @@ public class AuthInterceptor {
     private UserService userService;
 
 
+    /** doInterceptor implementation. */
     @Around("@annotation(authCheck)")
     public Object doInterceptor(ProceedingJoinPoint joinPoint, AuthCheck authCheck) throws Throwable {
         String mustRole = authCheck.mustRole();

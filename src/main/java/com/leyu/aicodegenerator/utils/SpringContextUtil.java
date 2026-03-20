@@ -6,35 +6,36 @@ import org.springframework.context.ApplicationContextAware;
 import org.springframework.stereotype.Component;
 
 /**
- * Spring上下文工具类
- * 用于在静态方法中获取Spring Bean
+ * Spring application context utility.
+ * Used to fetch Spring beans in static methods.
  */
 @Component
 public class SpringContextUtil implements ApplicationContextAware {
 
     private static ApplicationContext applicationContext;
 
+    /** setApplicationContext implementation. */
     @Override
     public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
         SpringContextUtil.applicationContext = applicationContext;
     }
 
     /**
-     * 获取Spring Bean
+     * Get a Spring bean by type.
      */
     public static <T> T getBean(Class<T> clazz) {
         return applicationContext.getBean(clazz);
     }
 
     /**
-     * 获取Spring Bean
+     * Get a Spring bean by name.
      */
     public static Object getBean(String name) {
         return applicationContext.getBean(name);
     }
 
     /**
-     * 根据名称和类型获取Spring Bean
+     * Get a Spring bean by name and type.
      */
     public static <T> T getBean(String name, Class<T> clazz) {
         return applicationContext.getBean(name, clazz);

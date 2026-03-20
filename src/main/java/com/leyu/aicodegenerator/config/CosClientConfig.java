@@ -10,6 +10,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/** CosClientConfig implementation. */
 @Configuration
 @ConfigurationProperties(prefix = "cos.client")
 @Data
@@ -21,6 +22,7 @@ public class CosClientConfig {
     private String region;
     private String bucket;
 
+    /** cosClient implementation. */
     @Bean
     public COSClient cosClient() {
         COSCredentials cred = new BasicCOSCredentials(secretId, secretKey);

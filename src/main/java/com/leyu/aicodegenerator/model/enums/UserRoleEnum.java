@@ -3,6 +3,7 @@ package com.leyu.aicodegenerator.model.enums;
 import cn.hutool.core.util.ObjUtil;
 import lombok.Getter;
 
+/** UserRoleEnum implementation. */
 @Getter
 public enum UserRoleEnum {
 
@@ -18,6 +19,7 @@ public enum UserRoleEnum {
         this.value = value;
     }
 
+    /** getEnumByValue implementation. */
     public static UserRoleEnum getEnumByValue(String value) {
         if (ObjUtil.isEmpty(value)) return null;
 

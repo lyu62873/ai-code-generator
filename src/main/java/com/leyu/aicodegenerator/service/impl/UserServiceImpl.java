@@ -39,6 +39,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
      * @param checkPassword
      * @return user id
      */
+/** User Register. */
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
         if (StrUtil.hasBlank(userAccount, userPassword, checkPassword)) {
@@ -99,6 +100,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
      * @param request
      * @return
      */
+/** User Login. */
     @Override
     public LoginUserVO userLogin(String userAccount, String userPassword, HttpServletRequest request) {
         if (StrUtil.hasBlank(userAccount, userPassword)) {

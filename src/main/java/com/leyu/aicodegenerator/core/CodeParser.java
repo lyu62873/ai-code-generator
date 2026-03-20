@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
 public class CodeParser {
 
     private static final Pattern HTML_CODE_PATTERN = Pattern.compile("```html\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+/** Compile. */
     private static final Pattern CSS_CODE_PATTERN = Pattern.compile("```css\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern JS_CODE_PATTERN = Pattern.compile("```(?:js|javascript)\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
 
@@ -77,6 +78,7 @@ public class CodeParser {
      * @param pattern
      * @return
      */
+/** Extract Code By Pattern. */
     private static String extractCodeByPattern(String content, Pattern pattern) {
         Matcher matcher = pattern.matcher(content);
         if (matcher.find()) {

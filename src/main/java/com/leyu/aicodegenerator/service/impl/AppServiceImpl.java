@@ -5,9 +5,13 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyu.aicodegenerator.ai.AiCodeGenTypeRoutingService;
+import com.leyu.aicodegenerator.ai.ChatGuardService;
+import com.leyu.aicodegenerator.ai.model.ChatGuardResult;
 import com.leyu.aicodegenerator.constant.AppConstant;
 import com.leyu.aicodegenerator.core.AiCodeGeneratorFacade;
+import com.leyu.aicodegenerator.core.ImageCollectionFacade;
 import com.leyu.aicodegenerator.core.builder.VueProjectBuilder;
 import com.leyu.aicodegenerator.core.handler.StreamHandlerExecutor;
 import com.leyu.aicodegenerator.entity.App;
@@ -24,6 +28,8 @@ import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 import com.leyu.aicodegenerator.model.vo.app.AppVO;
 import com.leyu.aicodegenerator.model.vo.user.UserVO;
 import com.leyu.aicodegenerator.service.*;
+import com.leyu.aicodegenerator.utils.ChatGuardResponseUtils;
+import com.leyu.aicodegenerator.utils.FluxToStringUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import jakarta.annotation.Resource;
@@ -31,14 +37,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.File;
 import java.io.Serializable;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.leyu.aicodegenerator.utils.FluxToCodeGenTypeUtil.fluxToCodeGenType;
@@ -48,6 +52,7 @@ import static com.leyu.aicodegenerator.utils.FluxToCodeGenTypeUtil.fluxToCodeGen
  *
  * @author Lyu
  */
+/** App Service Impl. */
 @Service
 @Slf4j
 public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppService {
@@ -64,6 +69,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
     @Autowired
     private ChatHistoryOriginalService  chatHistoryOriginalService;
+    @Autowired
+    private ImageCollectionFacade imageCollectionFacade;
+
+    @Autowired
+    private ChatGuardService chatGuardService;
+    @Resource
+    ObjectMapper objectMapper;
 
     public AppServiceImpl(UserService userService, AiCodeGeneratorFacade aiCodeGeneratorFacade,
                           ChatHistoryService chatHistoryService, StreamHandlerExecutor streamHandlerExecutor, VueProjectBuilder vueProjectBuilder) {
@@ -80,6 +92,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
      * @param app the entity
      * @return AppVO
      */
+/** Get App VO. */
     @Override
     public AppVO getAppVO(App app) {
         if (app == null) return null;
@@ -104,6 +117,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
      * @param appList the entity list
      * @return AppVO list
      */
+/** Get App VOList. */
     @Override
     public List<AppVO> getAppVOList(List<App> appList) {
         if (CollUtil.isEmpty(appList)) return new ArrayList<>();
@@ -131,6 +145,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
      * @param appQueryRequest the query request
      * @return QueryWrapper
      */
+/** Build QueryWrapper filters based on the provided query request. */
     @Override
     public QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest) {
         if (appQueryRequest == null) {
@@ -165,13 +180,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         return qw;
     }
 
-    /**
-     *
-     * @param appId
-     * @param message
-     * @param loginUser
-     * @return
-     */
+
+/** Chat To Gen Code. */
     @Override
     public Flux<String> chatToGenCode(Long appId, String message, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "Application ID cannot be null");
@@ -183,20 +193,70 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         String codeGenTypeStr = app.getCodeGenType();
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(codeGenTypeStr);
-
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.SYSTEM_ERROR, "Unsupported code generation type");
 
+        String guardJson = FluxToStringUtil.fluxToString(
+                chatGuardService.guard(message, codeGenType.getValue())
+        );
+        ChatGuardResult guardResult = ChatGuardResponseUtils.tryParse(objectMapper, guardJson)
+                .orElse(null);
+
+        // If parsing fails or action is PASS: continue with code generation.
+        // When parsing fails, let it pass to avoid model formatting jitter blocking generation.
+        if (guardResult != null && StrUtil.isNotBlank(guardResult.getAction())
+                && !"PASS".equalsIgnoreCase(guardResult.getAction())) {
+            String reply = guardResult.getReply();
+            if (reply == null || reply.isBlank()) {
+                reply = "I am a web code generation assistant. Please describe your page or feature request.";
+            }
+            // For display: keep ChatHistory consistent with the normal flow.
+            // Otherwise the optimistic UI update may hide this round in the list.
+            chatHistoryService.addChatMessage(appId, message, ChatHistoryTypeEnum.USER.getValue(), loginUser.getId());
+            chatHistoryService.addChatMessage(appId, reply, ChatHistoryTypeEnum.AI.getValue(), loginUser.getId());
+            // Don't write ChatHistoryOriginal: the intercepted round should not enter the code model context,
+            // to avoid irrelevant content/attacks polluting subsequent generation.
+            return Flux.just(reply);
+        }
+
+        // Always store the original user message in ChatHistory (for the user to see).
         chatHistoryService.addChatMessage(appId, message, ChatHistoryTypeEnum.USER.getValue(), loginUser.getId());
-        chatHistoryOriginalService.addOriginalChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
 
-        Flux<String> contentFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenType, appId);
+        // 1) Vue: don't do image routing or collectAndEnhance; pass directly to the Vue code model + tool for self decision.
+        if (CodeGenTypeEnum.VUE_PROJECT == codeGenType) {
+            chatHistoryOriginalService.addOriginalChatMessage(
+                    appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
 
-        return streamHandlerExecutor.doExecute(contentFlux, appId, loginUser, codeGenType);
+            Flux<String> contentFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenType, appId);
+            return streamHandlerExecutor.doExecute(contentFlux, appId, loginUser, codeGenType);
+        }
+
+        // 2) HTML / MULTI_FILE: locally simplify the decision on whether image collection is needed
+        boolean shouldCollectImages = shouldCollectImagesByRule(message);
+        Flux<String> statusFlux = shouldCollectImages ? Flux.just("正在搜集图片素材...") : Flux.empty();
+
+        Flux<String> codeGenFlux = Flux.defer(() -> {
+            String promptForGeneration = message;
+            if (shouldCollectImages) {
+                // If collectAndEnhance fails internally, it will automatically fall back to the original prompt.
+                promptForGeneration = imageCollectionFacade.collectAndEnhance(appId, message);
+            }
+
+            // ChatHistoryOriginal stores the real AI input (enhanced or original).
+            chatHistoryOriginalService.addOriginalChatMessage(
+                    appId, promptForGeneration, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
+
+            Flux<String> contentFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(
+                    promptForGeneration, codeGenType, appId);
+            return streamHandlerExecutor.doExecute(contentFlux, appId, loginUser, codeGenType);
+        }).subscribeOn(Schedulers.boundedElastic());
+
+        return Flux.concat(statusFlux, codeGenFlux);
     }
 
     @Override
     // @Transactional(rollbackFor = Exception.class)
     // It's acceptable that the app is deleted but chat message remains
+/** Remove the target data for the given parameters. */
     public boolean removeById(Serializable id) {
         if  (id == null) return false;
         Long appId = Long.valueOf(id.toString());
@@ -212,6 +272,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         return super.removeById(id);
     }
 
+/** Deploy App. */
     @Override
     public String deployApp(Long appId, User loginUser) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "Application ID cannot be null");
@@ -266,6 +327,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         return appDeployUrl;
     }
 
+/** Generate output for the request (and persist/upload as needed). */
     @Override
     public void generateAppScreenshotAsync(Long appId, String appUrl) {
         Thread.startVirtualThread(() -> {
@@ -279,6 +341,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         });
     }
 
+/** Generate output for the request (and persist/upload as needed). */
     @Override
     public Long createApp(AppAddRequest appAddRequest, User loginUser) {
         String initPrompt = appAddRequest.getInitPrompt();
@@ -298,6 +361,55 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         log.info("App construction success, ID: {}, Type: {}", app.getId(), selectedCodeGenType.getValue());
         return app.getId();
+    }
+
+    /**
+     * Simplified image-collection rules for HTML / MULTI_FILE:
+     * - If image keywords are hit => true
+     * - If only style/copy/fix keywords are hit (and no image keywords) => false
+     * - Otherwise: if it looks like a "new page request" => true
+     */
+    private boolean shouldCollectImagesByRule(String message) {
+        if (StrUtil.isBlank(message)) {
+            return false;
+        }
+
+        String normalized = message.toLowerCase();
+
+        String[] imageKeywords = {
+                "图片", "图", "插画", "配图", "背景图", "封面", "banner", "hero", "icon",
+                "photo", "photos", "image", "images", "illustration", "illustrations",
+                "replace image", "replace images", "换图", "换成", "图库"
+        };
+
+        String[] nonImageKeywords = {
+                "颜色", "字体", "间距", "边距", "布局微调", "对齐", "文案", "文本", "修复", "bug",
+                "color", "font", "spacing", "margin", "padding", "align", "text", "copywriting", "fix bug"
+        };
+
+        boolean hasImageHint = Arrays.stream(imageKeywords).anyMatch(normalized::contains);
+        if (hasImageHint) {
+            return true;
+        }
+
+        boolean hasNonImageHint = Arrays.stream(nonImageKeywords).anyMatch(normalized::contains);
+        if (hasNonImageHint) {
+            return false;
+        }
+
+        // Default strategy: for requests like "create a new page/site", prefer adding images.
+        return isLikelyNewPageRequest(normalized);
+    }
+
+/** Is Likely New Page Request. */
+    private boolean isLikelyNewPageRequest(String normalizedMessage) {
+        String[] newPageKeywords = {
+                "做一个", "生成一个", "创建一个", "设计一个", "新建",
+                "build", "create", "generate", "design",
+                "website", "web page", "landing page", "home page", "portfolio",
+                "官网", "页面", "网站", "博客", "商城", "后台管理"
+        };
+        return Arrays.stream(newPageKeywords).anyMatch(normalizedMessage::contains);
     }
 
 

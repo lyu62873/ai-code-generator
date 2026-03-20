@@ -1,4 +1,4 @@
-package com.leyu.aicodegenerator.langgraph4j.state;
+package com.leyu.aicodegenerator.entity;
 
 import com.leyu.aicodegenerator.model.enums.ImageCategoryEnum;
 import lombok.AllArgsConstructor;
@@ -10,8 +10,9 @@ import java.io.Serial;
 import java.io.Serializable;
 
 /**
- * 图片资源对象
+ * Image resource object.
  */
+/** ImageResource implementation. */
 @Data
 @Builder
 @NoArgsConstructor
@@ -19,17 +20,17 @@ import java.io.Serializable;
 public class ImageResource implements Serializable {
 
     /**
-     * 图片类别
+     * Image category.
      */
     private ImageCategoryEnum category;
 
     /**
-     * 图片描述
+     * Image description.
      */
     private String description;
 
     /**
-     * 图片地址
+     * Image URL.
      */
     private String url;
 

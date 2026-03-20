@@ -1,22 +1,23 @@
 package com.leyu.aicodegenerator.ai;
 
-import com.leyu.aicodegenerator.langgraph4j.state.ImageResource;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
+import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
 
 /**
- * 图片收集 AI 服务接口
- * 使用 AI 调用工具收集不同类型的图片资源
+ * Image collection AI service interface.
+ * Use AI to call tools and collect different types of image resources.
  */
+@Service
 public interface ImageCollectionService {
 
     /**
-     * 根据用户提示词收集所需的图片资源
-     * AI 会根据需求自主选择调用相应的工具
+     * Collect required image resources based on the user prompt.
+     * The AI will choose and call appropriate tools based on the request.
      */
     @SystemMessage(fromResource = "prompt/image-collection-system-prompt.txt")
     Flux<String> collectImages(@UserMessage String userPrompt);

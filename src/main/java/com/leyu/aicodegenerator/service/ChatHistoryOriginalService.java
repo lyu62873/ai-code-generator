@@ -7,7 +7,7 @@ import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import java.util.List;
 
 /**
- *  服务层。
+ * Service layer.
  *
  * @author Lyu
  */

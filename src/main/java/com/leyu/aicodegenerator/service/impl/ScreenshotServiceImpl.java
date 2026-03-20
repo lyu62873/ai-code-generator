@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
+/** Generate output for the request (and persist/upload as needed). */
 @Service
 @Slf4j
 public class ScreenshotServiceImpl implements ScreenshotService {
@@ -23,6 +24,7 @@ public class ScreenshotServiceImpl implements ScreenshotService {
     @Resource
     private CosManager cosManager;
 
+/** Generate output for the request (and persist/upload as needed). */
     @Override
     public String generateAndUploadScreenshot(String webUrl) {
         ThrowUtils.throwIf(StrUtil.isBlank(webUrl), ErrorCode.PARAMS_ERROR, "Web URL cannot be null");

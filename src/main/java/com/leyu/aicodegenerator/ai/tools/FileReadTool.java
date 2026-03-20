@@ -44,16 +44,19 @@ public class FileReadTool extends BaseTool {
         }
     }
 
+/** Return the tool name exposed to the agent runtime. */
     @Override
     public String getToolName() {
         return "readFile";
     }
 
+/** Return a user-facing display name for this tool. */
     @Override
     public String getDisplayName() {
         return "Read File";
     }
 
+/** Format the tool execution result for inclusion in chat history. */
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");
