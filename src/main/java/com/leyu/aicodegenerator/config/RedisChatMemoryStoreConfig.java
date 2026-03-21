@@ -1,6 +1,7 @@
 package com.leyu.aicodegenerator.config;
 
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
+import io.micrometer.common.util.StringUtils;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -20,11 +21,17 @@ public class RedisChatMemoryStoreConfig {
     /** redisChatMemoryStore implementation. */
     @Bean
     public RedisChatMemoryStore redisChatMemoryStore() {
-        return RedisChatMemoryStore.builder()
+
+        RedisChatMemoryStore.Builder builder = RedisChatMemoryStore.builder()
                 .host(host)
                 .port(port)
                 .password(password)
-                .ttl(ttl)
-                .build();
+                .ttl(ttl);
+
+        if (StringUtils.isNotBlank(password)) {
+            builder.user("default");
+        }
+
+        return builder.build();
     }
 }
