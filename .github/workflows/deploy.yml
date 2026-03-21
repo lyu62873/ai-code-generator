@@ -50,13 +50,18 @@ jobs:
             # 确保目标目录存在
             mkdir -p /opt/1panel/www/sites/ai-code-generator/
             
-            # 停止旧进程
+            # 停止旧进程：只用 pgrep -x java，再读 /proc/cmdline 核对 JAR，
+            # 避免 pgrep -f JAR 名匹配到 sh -c '...' 里含同一字符串而自杀（SSH 143）
             JAR_NAME="ai-code-generator-0.0.1-SNAPSHOT.jar"
-            PID=$(pgrep -f "$JAR_NAME")
-            if [ -n "$PID" ]; then kill -15 $PID; fi
+            for pid in $(pgrep -x java 2>/dev/null || true); do
+              if [ -r "/proc/${pid}/cmdline" ] && tr '\0' ' ' < "/proc/${pid}/cmdline" | grep -Fq -- "$JAR_NAME"; then
+                kill -15 "$pid" 2>/dev/null || true
+              fi
+            done
+            sleep 2
             
             # 搬运 JAR 包
-            mv /project/ai-code-generator-backend/$JAR_NAME /opt/1panel/www/sites/ai-code-generator/
+            mv "/project/ai-code-generator-backend/${JAR_NAME}" "/opt/1panel/www/sites/ai-code-generator/"
             
             # 启动服务
             cd /opt/1panel/www/sites/ai-code-generator/
