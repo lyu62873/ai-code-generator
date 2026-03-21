@@ -35,6 +35,7 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
@@ -76,6 +77,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private ChatGuardService chatGuardService;
     @Resource
     ObjectMapper objectMapper;
+
+    @Value("${code.deploy-host:http://localhost}")
+    private String deployHost;
 
     public AppServiceImpl(UserService userService, AiCodeGeneratorFacade aiCodeGeneratorFacade,
                           ChatHistoryService chatHistoryService, StreamHandlerExecutor streamHandlerExecutor, VueProjectBuilder vueProjectBuilder) {
@@ -232,7 +236,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         // 2) HTML / MULTI_FILE: locally simplify the decision on whether image collection is needed
         boolean shouldCollectImages = shouldCollectImagesByRule(message);
-        Flux<String> statusFlux = shouldCollectImages ? Flux.just("正在搜集图片素材...") : Flux.empty();
+        Flux<String> statusFlux = shouldCollectImages ? Flux.just("Collecting images...") : Flux.empty();
 
         Flux<String> codeGenFlux = Flux.defer(() -> {
             String promptForGeneration = message;
@@ -322,7 +326,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         boolean updateResult = updateById(updateApp);
         ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "Update app deploy info failed");
 
-        String appDeployUrl = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        String appDeployUrl = String.format("%s/%s/", deployHost, deployKey);
         generateAppScreenshotAsync(appId, appDeployUrl);
         return appDeployUrl;
     }
