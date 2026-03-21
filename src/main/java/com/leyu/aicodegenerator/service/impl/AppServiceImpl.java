@@ -236,7 +236,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         // 2) HTML / MULTI_FILE: locally simplify the decision on whether image collection is needed
         boolean shouldCollectImages = shouldCollectImagesByRule(message);
-        Flux<String> statusFlux = shouldCollectImages ? Flux.just("Collecting images...") : Flux.empty();
+        Flux<String> statusFlux = shouldCollectImages ? Flux.just("Collecting Images...") : Flux.empty();
 
         Flux<String> codeGenFlux = Flux.defer(() -> {
             String promptForGeneration = message;
