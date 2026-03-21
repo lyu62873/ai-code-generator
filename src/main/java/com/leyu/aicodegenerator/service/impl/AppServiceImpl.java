@@ -37,11 +37,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import redis.clients.jedis.exceptions.JedisConnectionException;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
+import reactor.util.retry.Retry;
 
 import java.io.File;
+import java.net.SocketException;
 import java.io.Serializable;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -230,7 +234,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             chatHistoryOriginalService.addOriginalChatMessage(
                     appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
 
-            Flux<String> contentFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenType, appId);
+            Flux<String> contentFlux = withRedisRetry(
+                    aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenType, appId),
+                    appId,
+                    codeGenType
+            );
             return streamHandlerExecutor.doExecute(contentFlux, appId, loginUser, codeGenType);
         }
 
@@ -249,12 +257,46 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             chatHistoryOriginalService.addOriginalChatMessage(
                     appId, promptForGeneration, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
 
-            Flux<String> contentFlux = aiCodeGeneratorFacade.generateAndSaveCodeStream(
-                    promptForGeneration, codeGenType, appId);
+            Flux<String> contentFlux = withRedisRetry(
+                    aiCodeGeneratorFacade.generateAndSaveCodeStream(promptForGeneration, codeGenType, appId),
+                    appId,
+                    codeGenType
+            );
             return streamHandlerExecutor.doExecute(contentFlux, appId, loginUser, codeGenType);
         }).subscribeOn(Schedulers.boundedElastic());
 
         return Flux.concat(statusFlux, codeGenFlux);
+    }
+
+    private Flux<String> withRedisRetry(Flux<String> sourceFlux, Long appId, CodeGenTypeEnum codeGenType) {
+        return sourceFlux.retryWhen(
+                Retry.fixedDelay(1, Duration.ofMillis(300))
+                        .filter(this::isTransientRedisConnectionError)
+                        .doBeforeRetry(retrySignal -> log.warn(
+                                "Retrying code generation due to Redis connection issue, appId={}, type={}, attempt={}, error={}",
+                                appId,
+                                codeGenType.getValue(),
+                                retrySignal.totalRetries() + 1,
+                                retrySignal.failure().toString()
+                        ))
+        );
+    }
+
+    private boolean isTransientRedisConnectionError(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof JedisConnectionException) {
+                return true;
+            }
+            if (current instanceof SocketException && current.getMessage() != null) {
+                String message = current.getMessage().toLowerCase();
+                if (message.contains("connection reset") || message.contains("broken pipe")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     @Override
