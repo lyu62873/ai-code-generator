@@ -40,12 +40,16 @@ jobs:
           strip_components: 1
 
       # 2. 从临时文件夹搬运并重启
+      # 远程是非交互 shell，PATH 很短；SDKMAN 只在 ~/.bashrc 里加 PATH，SSH 脚本读不到。可设 JAVA_HOME，或依赖下方对 ~/.sdkman/candidates/java/current 的探测
       - name: Atomic Deploy and Restart
+        env:
+          JAVA_HOME: ${{ secrets.JAVA_HOME }}
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.REMOTE_HOST }}
           username: root
           key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: JAVA_HOME
           script: |
             # 确保目标目录存在
             mkdir -p /opt/1panel/www/sites/ai-code-generator/
@@ -63,6 +67,26 @@ jobs:
             # 搬运 JAR 包
             mv "/project/ai-code-generator-backend/${JAR_NAME}" "/opt/1panel/www/sites/ai-code-generator/"
             
-            # 启动服务
+            # 启动服务（必须用绝对路径或 JAVA_HOME：SSH 不会加载 ~/.bashrc / sdkman init）
+            JAVA_CMD=""
+            if [ -n "$JAVA_HOME" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+              JAVA_CMD="$JAVA_HOME/bin/java"
+            elif [ -x /usr/bin/java ]; then
+              JAVA_CMD="/usr/bin/java"
+            else
+              for d in \
+                "${HOME}/.sdkman/candidates/java/current" \
+                /root/.sdkman/candidates/java/current \
+                /usr/lib/jvm/java-21-openjdk-amd64 \
+                /usr/lib/jvm/java-21-openjdk \
+                /usr/lib/jvm/java-21-amazon-corretto \
+                /usr/lib/jvm/default-java; do
+                if [ -n "$d" ] && [ -x "$d/bin/java" ]; then JAVA_CMD="$d/bin/java"; break; fi
+              done
+            fi
+            if [ -z "$JAVA_CMD" ]; then
+              echo "找不到 java：若用 SDKMAN，请在 Secrets 设置 JAVA_HOME 为 /root/.sdkman/candidates/java/current（或当前版本目录，如 .../21.0.5-tem）"
+              exit 1
+            fi
             cd /opt/1panel/www/sites/ai-code-generator/
-            nohup java -Dspring.profiles.active=prod -jar "$JAR_NAME" > app.log 2>&1 &
+            nohup "$JAVA_CMD" -Dspring.profiles.active=prod -jar "$JAR_NAME" > app.log 2>&1 &
