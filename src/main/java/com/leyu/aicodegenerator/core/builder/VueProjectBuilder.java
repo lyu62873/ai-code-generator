@@ -1,7 +1,9 @@
 package com.leyu.aicodegenerator.core.builder;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.RuntimeUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -11,6 +13,9 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Component
 public class VueProjectBuilder {
+
+    @Value("${app.builder.npm-path:}")
+    private String npmPath;
 
     public void buildProjectAsync(String projectPath) {
         Thread.ofVirtual().name("vue-builder-" + System.currentTimeMillis()).start(() -> {
@@ -23,11 +28,11 @@ public class VueProjectBuilder {
     }
 
 /** Execute Command. */
-    private boolean executeCommand(File workingDir, String command, int timeoutSeconds) {
+    private boolean executeCommand(File workingDir, String[] command, int timeoutSeconds) {
         try {
-            log.info("Executing command: " + command + " on working directory: " + workingDir.getAbsolutePath());
+            log.info("Executing command: {} on working directory: {}", String.join(" ", command), workingDir.getAbsolutePath());
             Process process = RuntimeUtil.exec(
-                    null, workingDir, command.split("\\s+")
+                    null, workingDir, command
             );
 
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
@@ -38,29 +43,31 @@ public class VueProjectBuilder {
             }
             int exitCode = process.exitValue();
             if (exitCode == 0) {
-                log.info("Command executed successfully: {}", command);
+                log.info("Command executed successfully: {}", String.join(" ", command));
                 return true;
             }  else {
-                log.error("Command execution fail: {}, error message: {}", command, exitCode);
+                log.error("Command execution fail: {}, error message: {}", String.join(" ", command), exitCode);
                 return false;
             }
         } catch (Exception e) {
-            log.error("Command execution fail: {}, error message: {}", command, e.getMessage());
+            log.error("Command execution fail: {}, error message: {}", String.join(" ", command), e.getMessage());
             return false;
         }
     }
 
 /** Execute Npm Install. */
     private boolean executeNpmInstall(File projectDir) {
-        log.info("Executing npm installation");
-        String command = String.format("%s install", buildCommand("npm"));
+        String npmExecutable = resolveNpmExecutable();
+        log.info("Executing npm installation with executable: {}", npmExecutable);
+        String[] command = {npmExecutable, "install"};
         return executeCommand(projectDir, command, 300);
     }
 
 /** Execute Npm Build. */
     private boolean executeNpmBuild(File projectDir) {
-        log.info("Executing npm build");
-        String command = String.format("%s run build", buildCommand("npm"));
+        String npmExecutable = resolveNpmExecutable();
+        log.info("Executing npm build with executable: {}", npmExecutable);
+        String[] command = {npmExecutable, "run", "build"};
         return executeCommand(projectDir, command, 180);
     }
 
@@ -75,6 +82,13 @@ public class VueProjectBuilder {
             return baseCommand + ".cmd";
         }
         return baseCommand;
+    }
+
+    private String resolveNpmExecutable() {
+        if (StrUtil.isNotBlank(npmPath)) {
+            return npmPath;
+        }
+        return buildCommand("npm");
     }
 
 /** Build Project. */
