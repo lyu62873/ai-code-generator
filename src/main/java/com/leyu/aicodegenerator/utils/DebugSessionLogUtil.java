@@ -14,7 +14,7 @@ import java.util.Map;
 public final class DebugSessionLogUtil {
 
     private static final String SESSION_ID = "6a9b34";
-    private static final Path LOG_PATH = Path.of("/home/leyu/projects/ai-code-generator/.cursor/debug-6a9b34.log");
+    private static final Path PRIMARY_LOG_PATH = Path.of("/home/leyu/projects/ai-code-generator/.cursor/debug-6a9b34.log");
 
     private DebugSessionLogUtil() {
     }
@@ -34,9 +34,26 @@ public final class DebugSessionLogUtil {
             payload.set("data", data == null ? Map.of() : data);
             payload.set("timestamp", System.currentTimeMillis());
             String line = JSONUtil.toJsonStr(payload) + System.lineSeparator();
-            Files.writeString(LOG_PATH, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            writeToPath(PRIMARY_LOG_PATH, line);
         } catch (Exception ignored) {
             // Best-effort debug logging only.
+        }
+    }
+
+    private static void writeToPath(Path path, String line) throws Exception {
+        try {
+            Path parent = path.getParent();
+            if (parent != null && !Files.exists(parent)) {
+                Files.createDirectories(parent);
+            }
+            Files.writeString(path, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception primaryEx) {
+            Path fallbackPath = Path.of(System.getProperty("user.dir"), ".cursor", "debug-6a9b34.log");
+            Path fallbackParent = fallbackPath.getParent();
+            if (fallbackParent != null && !Files.exists(fallbackParent)) {
+                Files.createDirectories(fallbackParent);
+            }
+            Files.writeString(fallbackPath, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
     }
 }
