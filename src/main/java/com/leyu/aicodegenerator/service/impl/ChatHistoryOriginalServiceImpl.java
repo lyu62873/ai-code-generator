@@ -8,6 +8,7 @@ import com.leyu.aicodegenerator.ai.model.message.ToolRequestMessage;
 import com.leyu.aicodegenerator.exception.ErrorCode;
 import com.leyu.aicodegenerator.exception.ThrowUtils;
 import com.leyu.aicodegenerator.model.enums.ChatHistoryMessageTypeEnum;
+import com.leyu.aicodegenerator.utils.DebugSessionLogUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.leyu.aicodegenerator.entity.ChatHistoryOriginal;
@@ -49,7 +50,43 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
                 .messageType(messageType)
                 .userId(userId)
                 .build();
-        return this.save(chatHistoryOriginal);
+        try {
+            boolean saved = this.save(chatHistoryOriginal);
+            // #region agent log
+            DebugSessionLogUtil.log(
+                    "pre-fix",
+                    "H3",
+                    "ChatHistoryOriginalServiceImpl.addOriginalChatMessage",
+                    "chat_history_original_save_result",
+                    java.util.Map.of(
+                            "appId", appId,
+                            "userId", userId,
+                            "messageType", messageType,
+                            "messageLength", message.length(),
+                            "saved", saved
+                    )
+            );
+            // #endregion
+            return saved;
+        } catch (Exception e) {
+            // #region agent log
+            DebugSessionLogUtil.log(
+                    "pre-fix",
+                    "H3",
+                    "ChatHistoryOriginalServiceImpl.addOriginalChatMessage",
+                    "chat_history_original_save_exception",
+                    java.util.Map.of(
+                            "appId", appId,
+                            "userId", userId,
+                            "messageType", messageType,
+                            "messageLength", message.length(),
+                            "errorType", e.getClass().getName(),
+                            "errorMessage", String.valueOf(e.getMessage())
+                    )
+            );
+            // #endregion
+            throw e;
+        }
     }
 
 /** Add the provided record and persist it to storage. */
@@ -73,7 +110,37 @@ public class ChatHistoryOriginalServiceImpl extends ServiceImpl<ChatHistoryOrigi
             return false;
         }
 
-        return this.saveBatch(validMessages);
+        try {
+            boolean saved = this.saveBatch(validMessages);
+            // #region agent log
+            DebugSessionLogUtil.log(
+                    "pre-fix",
+                    "H3",
+                    "ChatHistoryOriginalServiceImpl.addOriginalChatMessageBatch",
+                    "chat_history_original_batch_save_result",
+                    java.util.Map.of(
+                            "batchSize", validMessages.size(),
+                            "saved", saved
+                    )
+            );
+            // #endregion
+            return saved;
+        } catch (Exception e) {
+            // #region agent log
+            DebugSessionLogUtil.log(
+                    "pre-fix",
+                    "H3",
+                    "ChatHistoryOriginalServiceImpl.addOriginalChatMessageBatch",
+                    "chat_history_original_batch_save_exception",
+                    java.util.Map.of(
+                            "batchSize", validMessages.size(),
+                            "errorType", e.getClass().getName(),
+                            "errorMessage", String.valueOf(e.getMessage())
+                    )
+            );
+            // #endregion
+            throw e;
+        }
     }
 
 

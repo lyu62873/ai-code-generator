@@ -22,6 +22,7 @@ import com.leyu.aicodegenerator.ratelimiter.enums.RateLimitType;
 import com.leyu.aicodegenerator.service.AppService;
 import com.leyu.aicodegenerator.service.ProjectDownloadService;
 import com.leyu.aicodegenerator.service.UserService;
+import com.leyu.aicodegenerator.utils.DebugSessionLogUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import jakarta.annotation.Resource;
@@ -312,6 +313,44 @@ public class AppController {
                     .data(jsonData)
                     .build();
         })
+                .doOnComplete(() -> {
+                    // #region agent log
+                    DebugSessionLogUtil.log(
+                            "pre-fix",
+                            "H1",
+                            "AppController.chatToGenCode",
+                            "sse_stream_completed_before_done_event",
+                            Map.of("appId", appId, "userId", loginUser.getId())
+                    );
+                    // #endregion
+                })
+                .doOnError(error -> {
+                    // #region agent log
+                    DebugSessionLogUtil.log(
+                            "pre-fix",
+                            "H1",
+                            "AppController.chatToGenCode",
+                            "sse_stream_error_before_done_event",
+                            Map.of(
+                                    "appId", appId,
+                                    "userId", loginUser.getId(),
+                                    "errorType", error.getClass().getName(),
+                                    "errorMessage", String.valueOf(error.getMessage())
+                            )
+                    );
+                    // #endregion
+                })
+                .doFinally(signalType -> {
+                    // #region agent log
+                    DebugSessionLogUtil.log(
+                            "pre-fix",
+                            "H1",
+                            "AppController.chatToGenCode",
+                            "sse_stream_terminated",
+                            Map.of("appId", appId, "userId", loginUser.getId(), "signalType", signalType.name())
+                    );
+                    // #endregion
+                })
                 .concatWith(Mono.just(
                         ServerSentEvent.<String>builder()
                                 .event("done")

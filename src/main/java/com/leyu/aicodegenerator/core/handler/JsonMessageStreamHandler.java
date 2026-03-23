@@ -15,6 +15,7 @@ import com.leyu.aicodegenerator.model.enums.ChatHistoryMessageTypeEnum;
 import com.leyu.aicodegenerator.model.enums.StreamMessageTypeEnum;
 import com.leyu.aicodegenerator.service.ChatHistoryOriginalService;
 import com.leyu.aicodegenerator.service.ChatHistoryService;
+import com.leyu.aicodegenerator.utils.DebugSessionLogUtil;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,10 +49,44 @@ public class JsonMessageStreamHandler {
         Set<String> usedToolIds = new HashSet<>();
         return originFlux
                 .map(chunk -> {
-                    return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, aiResponseStringBuilder, originalChatHistoryList, usedToolIds);
+                    try {
+                        return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, aiResponseStringBuilder, originalChatHistoryList, usedToolIds);
+                    } catch (Exception e) {
+                        // #region agent log
+                        DebugSessionLogUtil.log(
+                                "pre-fix",
+                                "H4",
+                                "JsonMessageStreamHandler.handle",
+                                "chunk_parse_or_handle_failed",
+                                java.util.Map.of(
+                                        "appId", appId,
+                                        "userId", loginUser.getId(),
+                                        "errorType", e.getClass().getName(),
+                                        "errorMessage", String.valueOf(e.getMessage()),
+                                        "chunkLength", chunk == null ? 0 : chunk.length()
+                                )
+                        );
+                        // #endregion
+                        throw e;
+                    }
                 })
                 .filter(StrUtil::isNotEmpty)
                 .doOnComplete(() -> {
+                    // #region agent log
+                    DebugSessionLogUtil.log(
+                            "pre-fix",
+                            "H3",
+                            "JsonMessageStreamHandler.handle",
+                            "stream_doOnComplete_before_persist",
+                            java.util.Map.of(
+                                    "appId", appId,
+                                    "userId", loginUser.getId(),
+                                    "chatHistoryLength", chatHistoryStringBuilder.length(),
+                                    "aiResponseLength", aiResponseStringBuilder.length(),
+                                    "toolHistoryBatchSize", originalChatHistoryList.size()
+                            )
+                    );
+                    // #endregion
                     // Persist tool call info
                     if (!originalChatHistoryList.isEmpty()) {
                         // Enrich ChatHistoryOriginal info
@@ -71,6 +106,22 @@ public class JsonMessageStreamHandler {
                     chatHistoryService.addChatMessage(appId, chatHistoryStr, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
                 })
                 .doOnError(error -> {
+                    // #region agent log
+                    DebugSessionLogUtil.log(
+                            "pre-fix",
+                            "H3",
+                            "JsonMessageStreamHandler.handle",
+                            "stream_doOnError",
+                            java.util.Map.of(
+                                    "appId", appId,
+                                    "userId", loginUser.getId(),
+                                    "errorType", error.getClass().getName(),
+                                    "errorMessage", String.valueOf(error.getMessage()),
+                                    "chatHistoryLengthAtError", chatHistoryStringBuilder.length(),
+                                    "aiResponseLengthAtError", aiResponseStringBuilder.length()
+                            )
+                    );
+                    // #endregion
                     String errorMessage = "AI response error: " + error.getMessage();
                     chatHistoryService.addChatMessage(appId, errorMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
                     chatHistoryOriginalService.addOriginalChatMessage(appId, errorMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());

@@ -6,6 +6,7 @@ import com.leyu.aicodegenerator.constant.UserConstant;
 import com.leyu.aicodegenerator.entity.App;
 import com.leyu.aicodegenerator.model.enums.ChatHistoryTypeEnum;
 import com.leyu.aicodegenerator.service.AppService;
+import com.leyu.aicodegenerator.utils.DebugSessionLogUtil;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.leyu.aicodegenerator.entity.ChatHistory;
 import com.leyu.aicodegenerator.entity.User;
@@ -67,7 +68,43 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
                 .userId(userId)
                 .build();
 
-        return save(chatHistory);
+        try {
+            boolean saved = save(chatHistory);
+            // #region agent log
+            DebugSessionLogUtil.log(
+                    "pre-fix",
+                    "H3",
+                    "ChatHistoryServiceImpl.addChatMessage",
+                    "chat_history_save_result",
+                    java.util.Map.of(
+                            "appId", appId,
+                            "userId", userId,
+                            "messageType", messageType,
+                            "messageLength", message.length(),
+                            "saved", saved
+                    )
+            );
+            // #endregion
+            return saved;
+        } catch (Exception e) {
+            // #region agent log
+            DebugSessionLogUtil.log(
+                    "pre-fix",
+                    "H3",
+                    "ChatHistoryServiceImpl.addChatMessage",
+                    "chat_history_save_exception",
+                    java.util.Map.of(
+                            "appId", appId,
+                            "userId", userId,
+                            "messageType", messageType,
+                            "messageLength", message.length(),
+                            "errorType", e.getClass().getName(),
+                            "errorMessage", String.valueOf(e.getMessage())
+                    )
+            );
+            // #endregion
+            throw e;
+        }
     }
 
 /** Build QueryWrapper filters based on the provided query request. */

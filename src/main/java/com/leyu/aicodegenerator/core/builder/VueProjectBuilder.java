@@ -2,11 +2,16 @@ package com.leyu.aicodegenerator.core.builder;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.RuntimeUtil;
+import com.leyu.aicodegenerator.utils.DebugSessionLogUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /** Build Project Async. */
@@ -42,6 +47,19 @@ public class VueProjectBuilder {
                 return false;
             }
             int exitCode = process.exitValue();
+            // #region agent log
+            DebugSessionLogUtil.log(
+                    "pre-fix",
+                    "H5",
+                    "VueProjectBuilder.executeCommand",
+                    "npm_command_exit",
+                    java.util.Map.of(
+                            "workingDir", workingDir.getAbsolutePath(),
+                            "command", String.join(" ", command),
+                            "exitCode", exitCode
+                    )
+            );
+            // #endregion
             if (exitCode == 0) {
                 log.info("Command executed successfully: {}", String.join(" ", command));
                 return true;
@@ -57,18 +75,12 @@ public class VueProjectBuilder {
 
 /** Execute Npm Install. */
     private boolean executeNpmInstall(File projectDir) {
-        String npmExecutable = resolveNpmExecutable();
-        log.info("Executing npm installation with executable: {}", npmExecutable);
-        String[] command = {npmExecutable, "install"};
-        return executeCommand(projectDir, command, 300);
+        return executeNpmCommandWithFallback(projectDir, new String[]{"install"}, 300);
     }
 
 /** Execute Npm Build. */
     private boolean executeNpmBuild(File projectDir) {
-        String npmExecutable = resolveNpmExecutable();
-        log.info("Executing npm build with executable: {}", npmExecutable);
-        String[] command = {npmExecutable, "run", "build"};
-        return executeCommand(projectDir, command, 180);
+        return executeNpmCommandWithFallback(projectDir, new String[]{"run", "build"}, 180);
     }
 
 
@@ -84,11 +96,80 @@ public class VueProjectBuilder {
         return baseCommand;
     }
 
-    private String resolveNpmExecutable() {
+    private List<String> resolveNpmExecutables() {
+        Set<String> candidates = new LinkedHashSet<>();
         if (StrUtil.isNotBlank(npmPath)) {
-            return npmPath;
+            candidates.add(npmPath.trim());
         }
-        return buildCommand("npm");
+        candidates.add(buildCommand("npm"));
+        if (!isWindows()) {
+            candidates.add("/usr/bin/npm");
+            candidates.add("/usr/local/bin/npm");
+        }
+        List<String> executableList = new ArrayList<>(candidates);
+        // #region agent log
+        DebugSessionLogUtil.log(
+                "pre-fix",
+                "H5",
+                "VueProjectBuilder.resolveNpmExecutables",
+                "resolve_npm_candidates",
+                java.util.Map.of(
+                        "configuredNpmPath", StrUtil.blankToDefault(npmPath, ""),
+                        "isWindows", isWindows(),
+                        "candidateCount", executableList.size(),
+                        "candidates", executableList
+                )
+        );
+        // #endregion
+        return executableList;
+    }
+
+    private boolean executeNpmCommandWithFallback(File projectDir, String[] npmArgs, int timeoutSeconds) {
+        List<String> candidates = resolveNpmExecutables();
+        for (String candidate : candidates) {
+            File candidateFile = new File(candidate);
+            boolean pathLike = candidate.contains(File.separator) || candidateFile.isAbsolute();
+            if (pathLike && (!candidateFile.exists() || !candidateFile.canExecute())) {
+                log.warn("Skip npm executable candidate, file missing or not executable: {}", candidate);
+                // #region agent log
+                DebugSessionLogUtil.log(
+                        "pre-fix",
+                        "H5",
+                        "VueProjectBuilder.executeNpmCommandWithFallback",
+                        "skip_npm_candidate_unavailable",
+                        java.util.Map.of(
+                                "candidate", candidate,
+                                "exists", candidateFile.exists(),
+                                "canExecute", candidateFile.canExecute()
+                        )
+                );
+                // #endregion
+                continue;
+            }
+
+            String[] command = new String[npmArgs.length + 1];
+            command[0] = candidate;
+            System.arraycopy(npmArgs, 0, command, 1, npmArgs.length);
+            log.info("Trying npm command with executable candidate: {}", candidate);
+            boolean success = executeCommand(projectDir, command, timeoutSeconds);
+            // #region agent log
+            DebugSessionLogUtil.log(
+                    "pre-fix",
+                    "H5",
+                    "VueProjectBuilder.executeNpmCommandWithFallback",
+                    "npm_candidate_result",
+                    java.util.Map.of(
+                            "candidate", candidate,
+                            "success", success,
+                            "args", String.join(" ", npmArgs)
+                    )
+            );
+            // #endregion
+            if (success) {
+                return true;
+            }
+        }
+        return false;
     }
 
 /** Build Project. */
