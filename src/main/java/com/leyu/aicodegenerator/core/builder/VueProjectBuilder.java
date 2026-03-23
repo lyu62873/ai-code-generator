@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -147,29 +148,70 @@ public class VueProjectBuilder {
                 continue;
             }
 
-            String[] command = new String[npmArgs.length + 1];
-            command[0] = candidate;
-            System.arraycopy(npmArgs, 0, command, 1, npmArgs.length);
-            log.info("Trying npm command with executable candidate: {}", candidate);
-            boolean success = executeCommand(projectDir, command, timeoutSeconds);
-            // #region agent log
-            DebugSessionLogUtil.log(
-                    "pre-fix",
-                    "H5",
-                    "VueProjectBuilder.executeNpmCommandWithFallback",
-                    "npm_candidate_result",
-                    java.util.Map.of(
-                            "candidate", candidate,
-                            "success", success,
-                            "args", String.join(" ", npmArgs)
-                    )
-            );
-            // #endregion
-            if (success) {
-                return true;
+            List<String[]> commandPlans = buildNpmCommandPlans(candidate, npmArgs);
+            for (String[] command : commandPlans) {
+                log.info("Trying npm command with executable candidate: {}", String.join(" ", command));
+                boolean success = executeCommand(projectDir, command, timeoutSeconds);
+                // #region agent log
+                DebugSessionLogUtil.log(
+                        "pre-fix",
+                        "H6",
+                        "VueProjectBuilder.executeNpmCommandWithFallback",
+                        "npm_command_plan_result",
+                        java.util.Map.of(
+                                "command", String.join(" ", command),
+                                "success", success,
+                                "args", String.join(" ", npmArgs)
+                        )
+                );
+                // #endregion
+                if (success) {
+                    return true;
+                }
             }
         }
         return false;
+    }
+
+    private List<String[]> buildNpmCommandPlans(String npmExecutable, String[] npmArgs) {
+        List<String[]> plans = new ArrayList<>();
+        plans.add(mergeCommand(npmExecutable, npmArgs));
+
+        File npmFile = new File(npmExecutable);
+        boolean absoluteNpmPath = npmFile.isAbsolute() && npmFile.getName().startsWith("npm");
+        if (absoluteNpmPath) {
+            try {
+                Path binDir = npmFile.toPath().getParent();
+                if (binDir != null) {
+                    Path nodePath = binDir.resolve(isWindows() ? "node.exe" : "node");
+                    Path npmCliPath = binDir.getParent()
+                            .resolve("lib")
+                            .resolve("node_modules")
+                            .resolve("npm")
+                            .resolve("bin")
+                            .resolve("npm-cli.js");
+                    File nodeFile = nodePath.toFile();
+                    File npmCliFile = npmCliPath.toFile();
+                    if (nodeFile.exists() && nodeFile.canExecute() && npmCliFile.exists() && npmCliFile.isFile()) {
+                        String[] cliCommand = new String[npmArgs.length + 2];
+                        cliCommand[0] = nodeFile.getAbsolutePath();
+                        cliCommand[1] = npmCliFile.getAbsolutePath();
+                        System.arraycopy(npmArgs, 0, cliCommand, 2, npmArgs.length);
+                        plans.add(cliCommand);
+                    }
+                }
+            } catch (Exception ignored) {
+                // best-effort fallback command assembly only
+            }
+        }
+        return plans;
+    }
+
+    private String[] mergeCommand(String executable, String[] args) {
+        String[] command = new String[args.length + 1];
+        command[0] = executable;
+        System.arraycopy(args, 0, command, 1, args.length);
+        return command;
     }
 
 /** Build Project. */
