@@ -13,7 +13,9 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /** GlobalExceptionHandler implementation. */
 @Hidden
@@ -25,7 +27,11 @@ public class GlobalExceptionHandler {
     /** businessExceptionHandler implementation. */
     @ExceptionHandler(BusinessException.class)
     public BaseResponse<?> businessExceptionHandler(BusinessException e) {
-        log.error("BusinessException", e);
+        if (isClientSideBusinessCode(e.getCode())) {
+            logBusinessExceptionAsWarn(e);
+        } else {
+            log.error("业务异常，code={}，message={}", e.getCode(), e.getMessage(), e);
+        }
         // Attempt to handle SSE requests
         if (handleSseError(e.getCode(), e.getMessage())) {
             return null;
@@ -60,6 +66,9 @@ public class GlobalExceptionHandler {
         }
         HttpServletRequest request = attributes.getRequest();
         HttpServletResponse response = attributes.getResponse();
+        if (request == null || response == null) {
+            return false;
+        }
         // Determine whether it's an SSE request (via Accept header or URL path)
         String accept = request.getHeader("Accept");
         String uri = request.getRequestURI();
@@ -94,6 +103,37 @@ public class GlobalExceptionHandler {
             }
         }
         return false;
+    }
+
+    private boolean isClientSideBusinessCode(int code) {
+        return code == ErrorCode.NOT_LOGIN_ERROR.getCode()
+                || code == ErrorCode.NO_AUTH_ERROR.getCode()
+                || code == ErrorCode.PARAMS_ERROR.getCode();
+    }
+
+    private void logBusinessExceptionAsWarn(BusinessException e) {
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null) {
+            log.warn("业务请求异常，code={}，message={}", e.getCode(), e.getMessage());
+            return;
+        }
+        HttpServletRequest request = attributes.getRequest();
+        if (request == null) {
+            log.warn("业务请求异常，code={}，message={}", e.getCode(), e.getMessage());
+            return;
+        }
+        String paramSummary = request.getParameterMap().entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> Arrays.toString(entry.getValue())
+                )).toString();
+        log.warn("业务请求异常，method={}，uri={}，query={}，params={}，code={}，message={}",
+                request.getMethod(),
+                request.getRequestURI(),
+                request.getQueryString(),
+                paramSummary,
+                e.getCode(),
+                e.getMessage());
     }
 
 }

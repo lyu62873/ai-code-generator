@@ -16,7 +16,6 @@ import com.leyu.aicodegenerator.core.saver.CodeFileSaverExecutor;
 import com.leyu.aicodegenerator.exception.BusinessException;
 import com.leyu.aicodegenerator.exception.ErrorCode;
 import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
-import com.leyu.aicodegenerator.utils.DebugSessionLogUtil;
 import dev.langchain4j.service.TokenStream;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -143,48 +142,12 @@ public class AiCodeGeneratorFacade {
                         sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
                     })
                     .onCompleteResponse(response -> {
-                        long startedAt = System.currentTimeMillis();
-                        // #region agent log
-                        DebugSessionLogUtil.log(
-                                "pre-fix",
-                                "H2",
-                                "AiCodeGeneratorFacade.processTokenStream",
-                                "token_stream_complete_callback_started",
-                                java.util.Map.of("appId", appId)
-                        );
-                        // #endregion
                         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + "vue_project_" + appId;
-                        boolean buildSuccess = vueProjectBuilder.buildProject(projectPath);
-                        // #region agent log
-                        DebugSessionLogUtil.log(
-                                "pre-fix",
-                                "H2",
-                                "AiCodeGeneratorFacade.processTokenStream",
-                                "token_stream_complete_callback_finished",
-                                java.util.Map.of(
-                                        "appId", appId,
-                                        "buildSuccess", buildSuccess,
-                                        "durationMs", System.currentTimeMillis() - startedAt
-                                )
-                        );
-                        // #endregion
+                        vueProjectBuilder.buildProject(projectPath);
                         sink.complete();
                     })
                     .onError(e -> {
-                        // #region agent log
-                        DebugSessionLogUtil.log(
-                                "pre-fix",
-                                "H2",
-                                "AiCodeGeneratorFacade.processTokenStream",
-                                "token_stream_on_error",
-                                java.util.Map.of(
-                                        "appId", appId,
-                                        "errorType", e.getClass().getName(),
-                                        "errorMessage", String.valueOf(e.getMessage())
-                                )
-                        );
-                        // #endregion
-                        e.printStackTrace();
+                        log.error("Vue 项目流式生成失败，appId={}，错误={}", appId, e.getMessage());
                         sink.error(e);
                     })
                     .start();

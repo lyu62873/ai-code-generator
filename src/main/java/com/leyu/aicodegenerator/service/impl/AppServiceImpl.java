@@ -1,10 +1,21 @@
 package com.leyu.aicodegenerator.service.impl;
 
-import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.util.RandomUtil;
-import cn.hutool.core.util.StrUtil;
+import java.io.File;
+import java.io.Serializable;
+import java.net.SocketException;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyu.aicodegenerator.ai.AiCodeGenTypeRoutingService;
 import com.leyu.aicodegenerator.ai.ChatGuardService;
@@ -27,30 +38,28 @@ import com.leyu.aicodegenerator.model.enums.ChatHistoryTypeEnum;
 import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 import com.leyu.aicodegenerator.model.vo.app.AppVO;
 import com.leyu.aicodegenerator.model.vo.user.UserVO;
-import com.leyu.aicodegenerator.service.*;
+import com.leyu.aicodegenerator.service.AppService;
+import com.leyu.aicodegenerator.service.ChatHistoryOriginalService;
+import com.leyu.aicodegenerator.service.ChatHistoryService;
+import com.leyu.aicodegenerator.service.ScreenshotService;
+import com.leyu.aicodegenerator.service.UserService;
 import com.leyu.aicodegenerator.utils.ChatGuardResponseUtils;
+import static com.leyu.aicodegenerator.utils.FluxToCodeGenTypeUtil.fluxToCodeGenType;
 import com.leyu.aicodegenerator.utils.FluxToStringUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
+
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.RandomUtil;
+import cn.hutool.core.util.StrUtil;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import redis.clients.jedis.exceptions.JedisConnectionException;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 import reactor.util.retry.Retry;
-
-import java.io.File;
-import java.net.SocketException;
-import java.io.Serializable;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
-
-import static com.leyu.aicodegenerator.utils.FluxToCodeGenTypeUtil.fluxToCodeGenType;
+import redis.clients.jedis.exceptions.JedisConnectionException;
 
 /**
  * App Service Implementation
@@ -201,7 +210,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
         String codeGenTypeStr = app.getCodeGenType();
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(codeGenTypeStr);
-        ThrowUtils.throwIf(codeGenType == null, ErrorCode.SYSTEM_ERROR, "Unsupported code generation type");
+        ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "Unsupported code generation type");
 
         String guardJson = FluxToStringUtil.fluxToString(
                 chatGuardService.guard(message, codeGenType.getValue())

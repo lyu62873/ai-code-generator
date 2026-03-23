@@ -2,7 +2,6 @@ package com.leyu.aicodegenerator.core.builder;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.RuntimeUtil;
-import com.leyu.aicodegenerator.utils.DebugSessionLogUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -48,19 +47,6 @@ public class VueProjectBuilder {
                 return false;
             }
             int exitCode = process.exitValue();
-            // #region agent log
-            DebugSessionLogUtil.log(
-                    "pre-fix",
-                    "H5",
-                    "VueProjectBuilder.executeCommand",
-                    "npm_command_exit",
-                    java.util.Map.of(
-                            "workingDir", workingDir.getAbsolutePath(),
-                            "command", String.join(" ", command),
-                            "exitCode", exitCode
-                    )
-            );
-            // #endregion
             if (exitCode == 0) {
                 log.info("Command executed successfully: {}", String.join(" ", command));
                 return true;
@@ -107,22 +93,7 @@ public class VueProjectBuilder {
             candidates.add("/usr/bin/npm");
             candidates.add("/usr/local/bin/npm");
         }
-        List<String> executableList = new ArrayList<>(candidates);
-        // #region agent log
-        DebugSessionLogUtil.log(
-                "pre-fix",
-                "H5",
-                "VueProjectBuilder.resolveNpmExecutables",
-                "resolve_npm_candidates",
-                java.util.Map.of(
-                        "configuredNpmPath", StrUtil.blankToDefault(npmPath, ""),
-                        "isWindows", isWindows(),
-                        "candidateCount", executableList.size(),
-                        "candidates", executableList
-                )
-        );
-        // #endregion
-        return executableList;
+        return new ArrayList<>(candidates);
     }
 
     private boolean executeNpmCommandWithFallback(File projectDir, String[] npmArgs, int timeoutSeconds) {
@@ -132,19 +103,6 @@ public class VueProjectBuilder {
             boolean pathLike = candidate.contains(File.separator) || candidateFile.isAbsolute();
             if (pathLike && (!candidateFile.exists() || !candidateFile.canExecute())) {
                 log.warn("Skip npm executable candidate, file missing or not executable: {}", candidate);
-                // #region agent log
-                DebugSessionLogUtil.log(
-                        "pre-fix",
-                        "H5",
-                        "VueProjectBuilder.executeNpmCommandWithFallback",
-                        "skip_npm_candidate_unavailable",
-                        java.util.Map.of(
-                                "candidate", candidate,
-                                "exists", candidateFile.exists(),
-                                "canExecute", candidateFile.canExecute()
-                        )
-                );
-                // #endregion
                 continue;
             }
 
@@ -152,19 +110,6 @@ public class VueProjectBuilder {
             for (String[] command : commandPlans) {
                 log.info("Trying npm command with executable candidate: {}", String.join(" ", command));
                 boolean success = executeCommand(projectDir, command, timeoutSeconds);
-                // #region agent log
-                DebugSessionLogUtil.log(
-                        "pre-fix",
-                        "H6",
-                        "VueProjectBuilder.executeNpmCommandWithFallback",
-                        "npm_command_plan_result",
-                        java.util.Map.of(
-                                "command", String.join(" ", command),
-                                "success", success,
-                                "args", String.join(" ", npmArgs)
-                        )
-                );
-                // #endregion
                 if (success) {
                     return true;
                 }

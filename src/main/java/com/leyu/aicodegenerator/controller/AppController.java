@@ -15,19 +15,18 @@ import com.leyu.aicodegenerator.exception.BusinessException;
 import com.leyu.aicodegenerator.exception.ErrorCode;
 import com.leyu.aicodegenerator.exception.ThrowUtils;
 import com.leyu.aicodegenerator.model.dto.app.*;
-import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 import com.leyu.aicodegenerator.model.vo.app.AppVO;
 import com.leyu.aicodegenerator.ratelimiter.annotation.RateLimit;
 import com.leyu.aicodegenerator.ratelimiter.enums.RateLimitType;
 import com.leyu.aicodegenerator.service.AppService;
 import com.leyu.aicodegenerator.service.ProjectDownloadService;
 import com.leyu.aicodegenerator.service.UserService;
-import com.leyu.aicodegenerator.utils.DebugSessionLogUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
@@ -35,12 +34,10 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.io.File;
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -54,6 +51,7 @@ import java.util.Map;
 /** AppController implementation. */
 @RestController
 @RequestMapping("/app")
+@Slf4j
 public class AppController {
 
     @Autowired
@@ -75,6 +73,11 @@ public class AppController {
      */
     @PostMapping("/add")
     public BaseResponse<Long> addApp(@RequestBody AppAddRequest appAddRequest, HttpServletRequest request) {
+        logInterfaceExecution(
+                "/app/add",
+                "AppController.addApp -> UserService.getLoginUser -> AppServiceImpl.createApp -> AiCodeGenTypeRoutingService.routeCodeGenType -> AppServiceImpl.save",
+                buildParams("initPrompt", appAddRequest == null ? null : appAddRequest.getInitPrompt())
+        );
         ThrowUtils.throwIf(appAddRequest == null, ErrorCode.PARAMS_ERROR);
 
         User loginUser = userService.getLoginUser(request);
@@ -89,6 +92,11 @@ public class AppController {
      */
     @PostMapping("/update")
     public BaseResponse<Boolean> updateApp(@RequestBody AppUpdateRequest appUpdateRequest, HttpServletRequest request) {
+        logInterfaceExecution(
+                "/app/update",
+                "AppController.updateApp -> UserService.getLoginUser -> AppServiceImpl.getById -> AppServiceImpl.updateById",
+                buildParams("id", appUpdateRequest == null ? null : appUpdateRequest.getId(), "appName", appUpdateRequest == null ? null : appUpdateRequest.getAppName())
+        );
         if (appUpdateRequest == null || appUpdateRequest.getId() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -116,6 +124,11 @@ public class AppController {
      */
     @PostMapping("/delete")
     public BaseResponse<Boolean> deleteApp(@RequestBody DeleteRequest deleteRequest, HttpServletRequest request) {
+        logInterfaceExecution(
+                "/app/delete",
+                "AppController.deleteApp -> UserService.getLoginUser -> AppServiceImpl.getById -> AppServiceImpl.removeById -> ChatHistoryService.removeByAppId -> ChatHistoryOriginalService.deleteByAppId",
+                buildParams("id", deleteRequest == null ? null : deleteRequest.getId())
+        );
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -137,6 +150,11 @@ public class AppController {
      */
     @GetMapping("/get/vo")
     public BaseResponse<AppVO> getAppVOById(long id, HttpServletRequest request) {
+        logInterfaceExecution(
+                "/app/get/vo",
+                "AppController.getAppVOById -> UserService.getLoginUser -> AppServiceImpl.getById -> AppServiceImpl.getAppVO",
+                buildParams("id", id)
+        );
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
         userService.getLoginUser(request);
 
@@ -151,6 +169,15 @@ public class AppController {
      */
     @PostMapping("/my/list/page/vo")
     public BaseResponse<Page<AppVO>> listAppVOByPage(@RequestBody AppQueryRequest appQueryRequest, HttpServletRequest request) {
+        logInterfaceExecution(
+                "/app/my/list/page/vo",
+                "AppController.listAppVOByPage -> UserService.getLoginUser -> AppServiceImpl.getQueryWrapper -> AppServiceImpl.page -> AppServiceImpl.getAppVOList",
+                buildParams(
+                        "pageNum", appQueryRequest == null ? null : appQueryRequest.getPageNum(),
+                        "pageSize", appQueryRequest == null ? null : appQueryRequest.getPageSize(),
+                        "appName", appQueryRequest == null ? null : appQueryRequest.getAppName()
+                )
+        );
         ThrowUtils.throwIf(appQueryRequest == null, ErrorCode.PARAMS_ERROR);
 
         User loginUser = userService.getLoginUser(request);
@@ -183,6 +210,15 @@ public class AppController {
     )
     /** listFeaturedAppVOByPage implementation. */
     public BaseResponse<Page<AppVO>> listFeaturedAppVOByPage(@RequestBody AppQueryRequest appQueryRequest) {
+        logInterfaceExecution(
+                "/app/good/list/page/vo",
+                "AppController.listFeaturedAppVOByPage -> AppServiceImpl.getQueryWrapper -> AppServiceImpl.page -> AppServiceImpl.getAppVOList",
+                buildParams(
+                        "pageNum", appQueryRequest == null ? null : appQueryRequest.getPageNum(),
+                        "pageSize", appQueryRequest == null ? null : appQueryRequest.getPageSize(),
+                        "appName", appQueryRequest == null ? null : appQueryRequest.getAppName()
+                )
+        );
         ThrowUtils.throwIf(appQueryRequest == null, ErrorCode.PARAMS_ERROR);
 
         int pageSize = appQueryRequest.getPageSize();
@@ -215,6 +251,11 @@ public class AppController {
     @PostMapping("/admin/delete")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Boolean> adminDeleteApp(@RequestBody DeleteRequest deleteRequest) {
+        logInterfaceExecution(
+                "/app/admin/delete",
+                "AppController.adminDeleteApp -> AppServiceImpl.getById -> AppServiceImpl.removeById",
+                buildParams("id", deleteRequest == null ? null : deleteRequest.getId())
+        );
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -232,6 +273,14 @@ public class AppController {
     @PostMapping("/admin/update")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Boolean> adminUpdateApp(@RequestBody AppAdminUpdateRequest appAdminUpdateRequest) {
+        logInterfaceExecution(
+                "/app/admin/update",
+                "AppController.adminUpdateApp -> AppServiceImpl.getById -> AppServiceImpl.updateById -> CacheManager(good_app_page).clear",
+                buildParams(
+                        "id", appAdminUpdateRequest == null ? null : appAdminUpdateRequest.getId(),
+                        "priority", appAdminUpdateRequest == null ? null : appAdminUpdateRequest.getPriority()
+                )
+        );
         ThrowUtils.throwIf(appAdminUpdateRequest == null || appAdminUpdateRequest.getId() == null, ErrorCode.PARAMS_ERROR);
 
         Long id = appAdminUpdateRequest.getId();
@@ -266,6 +315,14 @@ public class AppController {
     @PostMapping("/admin/list/page/vo")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Page<AppVO>> adminListAppVOByPage(@RequestBody AppQueryRequest appQueryRequest) {
+        logInterfaceExecution(
+                "/app/admin/list/page/vo",
+                "AppController.adminListAppVOByPage -> AppServiceImpl.getQueryWrapper -> AppServiceImpl.page -> AppServiceImpl.getAppVOList",
+                buildParams(
+                        "pageNum", appQueryRequest == null ? null : appQueryRequest.getPageNum(),
+                        "pageSize", appQueryRequest == null ? null : appQueryRequest.getPageSize()
+                )
+        );
         ThrowUtils.throwIf(appQueryRequest == null, ErrorCode.PARAMS_ERROR);
 
         long pageNum = appQueryRequest.getPageNum();
@@ -288,6 +345,11 @@ public class AppController {
     @GetMapping("/admin/get/vo")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<AppVO> adminGetAppVOById(long id) {
+        logInterfaceExecution(
+                "/app/admin/get/vo",
+                "AppController.adminGetAppVOById -> AppServiceImpl.getById -> AppServiceImpl.getAppVO",
+                buildParams("id", id)
+        );
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
         App app = appService.getById(id);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
@@ -299,6 +361,11 @@ public class AppController {
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                                @RequestParam String message,
                                                HttpServletRequest request) {
+        logInterfaceExecution(
+                "/app/chat/gen/code",
+                "AppController.chatToGenCode -> UserService.getLoginUser -> AppServiceImpl.chatToGenCode -> (ChatGuardService.guard) -> (AiCodeGeneratorFacade.generateAndSaveCodeStream) -> StreamHandlerExecutor.doExecute -> JsonMessageStreamHandler.handle/SimpleTextStreamHandler.handle",
+                buildParams("appId", appId, "messageLength", message == null ? null : message.length())
+        );
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "Invalid app id");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "User message cannot be null");
 
@@ -313,44 +380,6 @@ public class AppController {
                     .data(jsonData)
                     .build();
         })
-                .doOnComplete(() -> {
-                    // #region agent log
-                    DebugSessionLogUtil.log(
-                            "pre-fix",
-                            "H1",
-                            "AppController.chatToGenCode",
-                            "sse_stream_completed_before_done_event",
-                            Map.of("appId", appId, "userId", loginUser.getId())
-                    );
-                    // #endregion
-                })
-                .doOnError(error -> {
-                    // #region agent log
-                    DebugSessionLogUtil.log(
-                            "pre-fix",
-                            "H1",
-                            "AppController.chatToGenCode",
-                            "sse_stream_error_before_done_event",
-                            Map.of(
-                                    "appId", appId,
-                                    "userId", loginUser.getId(),
-                                    "errorType", error.getClass().getName(),
-                                    "errorMessage", String.valueOf(error.getMessage())
-                            )
-                    );
-                    // #endregion
-                })
-                .doFinally(signalType -> {
-                    // #region agent log
-                    DebugSessionLogUtil.log(
-                            "pre-fix",
-                            "H1",
-                            "AppController.chatToGenCode",
-                            "sse_stream_terminated",
-                            Map.of("appId", appId, "userId", loginUser.getId(), "signalType", signalType.name())
-                    );
-                    // #endregion
-                })
                 .concatWith(Mono.just(
                         ServerSentEvent.<String>builder()
                                 .event("done")
@@ -362,6 +391,11 @@ public class AppController {
     /** deployApp implementation. */
     @PostMapping("/deploy")
     public BaseResponse<String> deployApp(@RequestBody AppDeployRequest appDeployRequest, HttpServletRequest request) {
+        logInterfaceExecution(
+                "/app/deploy",
+                "AppController.deployApp -> UserService.getLoginUser -> AppServiceImpl.deployApp -> VueProjectBuilder.buildProject(仅VUE_PROJECT) -> FileUtil.copyContent -> AppServiceImpl.updateById",
+                buildParams("appId", appDeployRequest == null ? null : appDeployRequest.getAppId())
+        );
         ThrowUtils.throwIf(appDeployRequest == null, ErrorCode.PARAMS_ERROR);
         Long appId = appDeployRequest.getAppId();
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR,  "App id cannot be null");
@@ -376,6 +410,11 @@ public class AppController {
     public void downloadAppCode(@PathVariable Long appId,
                                 HttpServletRequest request,
                                 HttpServletResponse response) {
+        logInterfaceExecution(
+                "/app/download/{appId}",
+                "AppController.downloadAppCode -> AppServiceImpl.getById -> UserService.getLoginUser -> ProjectDownloadService.downloadProjectAsZip",
+                buildParams("appId", appId)
+        );
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "App id is invalid");
         App app = appService.getById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "App not found");
@@ -392,5 +431,20 @@ public class AppController {
                 ErrorCode.NOT_FOUND_ERROR, "Application code not exist, please generate code first");
         String downloadFileName = String.valueOf(appId);
         projectDownloadService.downloadProjectAsZip(sourceDirPath, downloadFileName, response);
+    }
+
+    private void logInterfaceExecution(String apiPath, String methodChain, Map<String, Object> params) {
+        log.info("正在执行{}接口，具体会使用{}，参数：{}", apiPath, methodChain, JSONUtil.toJsonStr(params));
+    }
+
+    private Map<String, Object> buildParams(Object... keyValues) {
+        Map<String, Object> params = new HashMap<>();
+        if (keyValues == null || keyValues.length == 0) {
+            return params;
+        }
+        for (int i = 0; i < keyValues.length - 1; i += 2) {
+            params.put(String.valueOf(keyValues[i]), keyValues[i + 1]);
+        }
+        return params;
     }
 }
