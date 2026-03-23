@@ -5,6 +5,7 @@ tmp/
 temp/
 logs/
 log/
+bugs/
 *.log
 *.out
 *.err
