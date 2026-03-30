@@ -9,6 +9,7 @@ import com.leyu.aicodegenerator.common.DeleteRequest;
 import com.leyu.aicodegenerator.common.ResultUtils;
 import com.leyu.aicodegenerator.constant.AppConstant;
 import com.leyu.aicodegenerator.constant.UserConstant;
+import com.leyu.aicodegenerator.core.stream.CodeGenStreamSessionService;
 import com.leyu.aicodegenerator.entity.App;
 import com.leyu.aicodegenerator.entity.User;
 import com.leyu.aicodegenerator.exception.BusinessException;
@@ -64,6 +65,8 @@ public class AppController {
     private ProjectDownloadService projectDownloadService;
     @Resource
     private CacheManager cacheManager;
+    @Resource
+    private CodeGenStreamSessionService codeGenStreamSessionService;
 
     // ==================== User Endpoints ====================
 
@@ -360,6 +363,8 @@ public class AppController {
     @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI chat requests are too frequent. Please try again later.")
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                                @RequestParam String message,
+                                               @RequestParam(required = false) String sessionId,
+                                               @RequestParam(defaultValue = "0") Long lastSeq,
                                                HttpServletRequest request) {
         logInterfaceExecution(
                 "/app/chat/gen/code",
@@ -371,15 +376,31 @@ public class AppController {
 
         User loginUser = userService.getLoginUser(request);
 
-        Flux<String> stringFlux = appService.chatToGenCode(appId, message, loginUser);
+        CodeGenStreamSessionService.SessionAttachResult attachResult = codeGenStreamSessionService.attachOrCreate(
+                appId,
+                loginUser.getId(),
+                message,
+                sessionId,
+                lastSeq == null ? 0 : lastSeq,
+                () -> appService.chatToGenCode(appId, message, loginUser)
+        );
 
-        return stringFlux.map(chunk -> {
+        Flux<ServerSentEvent<String>> sessionEventFlux = Flux.just(
+                ServerSentEvent.<String>builder()
+                        .event("session")
+                        .data(attachResult.sessionId())
+                        .build()
+        );
+
+        Flux<ServerSentEvent<String>> dataEventFlux = attachResult.dataFlux().map(chunk -> {
             Map<String, String> wrapper = Map.of("d", chunk);
             String jsonData = JSONUtil.toJsonStr(wrapper);
             return ServerSentEvent.<String>builder()
                     .data(jsonData)
                     .build();
-        })
+        });
+
+        return Flux.concat(sessionEventFlux, dataEventFlux)
                 .concatWith(Mono.just(
                         ServerSentEvent.<String>builder()
                                 .event("done")
