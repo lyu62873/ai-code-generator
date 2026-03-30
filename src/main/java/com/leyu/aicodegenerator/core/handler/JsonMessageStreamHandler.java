@@ -20,11 +20,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.SignalType;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Handle incoming streaming chunks and update chat history (incl. tool calls). */
 @Slf4j
@@ -46,28 +48,19 @@ public class JsonMessageStreamHandler {
         StringBuilder aiResponseStringBuilder = new StringBuilder();
         List<ChatHistoryOriginal> originalChatHistoryList = new ArrayList<>();
         Set<String> usedToolIds = new HashSet<>();
+        AtomicBoolean persisted = new AtomicBoolean(false);
         return originFlux
                 .map(chunk -> handleJsonMessageChunk(chunk, chatHistoryStringBuilder, aiResponseStringBuilder, originalChatHistoryList, usedToolIds))
                 .filter(StrUtil::isNotEmpty)
-                .doOnComplete(() -> {
-                    // Persist tool call info
-                    if (!originalChatHistoryList.isEmpty()) {
-                        // Enrich ChatHistoryOriginal info
-                        originalChatHistoryList.forEach(chatHistory -> {
-                            chatHistory.setAppId(appId);
-                            chatHistory.setUserId(loginUser.getId());
-                        });
-                        // Batch persist
-                        chatHistoryOriginalService.addOriginalChatMessageBatch(originalChatHistoryList);
-                    }
-                    // Persist AI response (two cases: 1) no tool call; 2) after tool calls, the AI usually returns one more message)
-                    String aiResponseStr = aiResponseStringBuilder.toString();
-                    chatHistoryOriginalService.addOriginalChatMessage(appId, aiResponseStr, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-
-                    // After streaming completes, add the AI message to chat history
-                    String chatHistoryStr = chatHistoryStringBuilder.toString();
-                    chatHistoryService.addChatMessage(appId, chatHistoryStr, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-                })
+                .doFinally(signalType -> persistFinalMessagesOnce(
+                        appId,
+                        loginUser.getId(),
+                        originalChatHistoryList,
+                        aiResponseStringBuilder.toString(),
+                        chatHistoryStringBuilder.toString(),
+                        signalType,
+                        persisted
+                ))
                 .doOnError(error -> {
                     String errorMessage = "AI response error: " + error.getMessage();
                     chatHistoryService.addChatMessage(appId, errorMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
@@ -214,5 +207,55 @@ public class JsonMessageStreamHandler {
 
         // Clear the current AI text buffer after tool execution (keep your original semantics)
         aiResponseStringBuilder.setLength(0);
+    }
+
+    private void persistFinalMessages(long appId,
+                                      long userId,
+                                      List<ChatHistoryOriginal> originalChatHistoryList,
+                                      String aiResponseStr,
+                                      String chatHistoryStr) {
+        try {
+            if (!originalChatHistoryList.isEmpty()) {
+                originalChatHistoryList.forEach(chatHistory -> {
+                    chatHistory.setAppId(appId);
+                    chatHistory.setUserId(userId);
+                });
+                chatHistoryOriginalService.addOriginalChatMessageBatch(originalChatHistoryList);
+            }
+        } catch (Exception e) {
+            log.error("Failed to persist tool execution history, appId={}, error={}", appId, e.getMessage(), e);
+        }
+
+        try {
+            if (StrUtil.isNotBlank(aiResponseStr)) {
+                chatHistoryOriginalService.addOriginalChatMessage(
+                        appId, aiResponseStr, ChatHistoryMessageTypeEnum.AI.getValue(), userId);
+            }
+        } catch (Exception e) {
+            log.error("Failed to persist AI original message, appId={}, error={}", appId, e.getMessage(), e);
+        }
+
+        try {
+            if (StrUtil.isNotBlank(chatHistoryStr)) {
+                chatHistoryService.addChatMessage(
+                        appId, chatHistoryStr, ChatHistoryMessageTypeEnum.AI.getValue(), userId);
+            }
+        } catch (Exception e) {
+            log.error("Failed to persist AI chat history, appId={}, error={}", appId, e.getMessage(), e);
+        }
+    }
+
+    private void persistFinalMessagesOnce(long appId,
+                                          long userId,
+                                          List<ChatHistoryOriginal> originalChatHistoryList,
+                                          String aiResponseStr,
+                                          String chatHistoryStr,
+                                          SignalType signalType,
+                                          AtomicBoolean persisted) {
+        if (!persisted.compareAndSet(false, true)) {
+            return;
+        }
+        log.info("Finalize stream persistence, appId={}, signalType={}", appId, signalType);
+        persistFinalMessages(appId, userId, originalChatHistoryList, aiResponseStr, chatHistoryStr);
     }
 }
