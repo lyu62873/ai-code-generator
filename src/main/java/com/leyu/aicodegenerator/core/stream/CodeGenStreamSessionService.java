@@ -1,6 +1,7 @@
 package com.leyu.aicodegenerator.core.stream;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 @Component
@@ -42,6 +44,7 @@ public class CodeGenStreamSessionService {
                                               String message,
                                               String sessionId,
                                               long lastSeq,
+                                              boolean resumeOnly,
                                               Supplier<Flux<String>> sourceFluxSupplier) {
         if (lastSeq < 0) {
             lastSeq = 0;
@@ -51,8 +54,17 @@ public class CodeGenStreamSessionService {
         SessionState state;
         if (StrUtil.isNotBlank(sessionId)) {
             state = sessionStateMap.get(sessionId);
+            if (state != null && (state.getAppId() != appId || state.getUserId() != userId)) {
+                log.warn("Session ownership mismatch, sessionId={}, requestAppId={}, requestUserId={}, stateAppId={}, stateUserId={}",
+                        sessionId, appId, userId, state.getAppId(), state.getUserId());
+                state = null;
+            }
         } else {
             state = null;
+        }
+
+        if (state == null && resumeOnly && StrUtil.isNotBlank(sessionId)) {
+            return new SessionAttachResult(sessionId, Flux.empty(), true);
         }
 
         if (state == null) {
@@ -64,7 +76,8 @@ public class CodeGenStreamSessionService {
 
         return new SessionAttachResult(
                 state.getSessionId(),
-                replayFlux.concatWith(liveFlux)
+                replayFlux.concatWith(liveFlux),
+                false
         );
     }
 
@@ -83,7 +96,17 @@ public class CodeGenStreamSessionService {
 
         String newSessionId = UUID.randomUUID().toString().replace("-", "");
         Sinks.Many<String> sink = Sinks.many().multicast().onBackpressureBuffer();
-        SessionState newState = new SessionState(newSessionId, appId, userId, message, sink, false, null, System.currentTimeMillis());
+        SessionState newState = new SessionState(
+                newSessionId,
+                appId,
+                userId,
+                message,
+                sink,
+                false,
+                null,
+                System.currentTimeMillis(),
+                new AtomicLong(0)
+        );
 
         sessionStateMap.put(newSessionId, newState);
         activeSessionByOwnerApp.put(ownerAppKey, newSessionId);
@@ -91,8 +114,13 @@ public class CodeGenStreamSessionService {
 
         Disposable disposable = sourceFluxSupplier.get().subscribe(
                 chunk -> {
-                    appendChunk(newSessionId, chunk);
-                    sink.tryEmitNext(chunk);
+                    long seq = newState.getNextSeq().getAndIncrement();
+                    String chunkEnvelope = JSONUtil.createObj()
+                            .set("seq", seq)
+                            .set("d", chunk)
+                            .toString();
+                    appendChunk(newSessionId, chunkEnvelope);
+                    sink.tryEmitNext(chunkEnvelope);
                 },
                 error -> {
                     newState.setCompleted(true);
@@ -118,10 +146,11 @@ public class CodeGenStreamSessionService {
     private Flux<String> replayFromRedis(String sessionId, long lastSeq) {
         String chunkKey = chunkKey(sessionId);
         Long size = redisTemplate.opsForList().size(chunkKey);
-        if (size == null || size <= lastSeq) {
+        long startIndex = Math.max(0, lastSeq + 1);
+        if (size == null || size <= startIndex) {
             return Flux.empty();
         }
-        List<String> chunkList = redisTemplate.opsForList().range(chunkKey, lastSeq, -1);
+        List<String> chunkList = redisTemplate.opsForList().range(chunkKey, startIndex, -1);
         if (chunkList == null || chunkList.isEmpty()) {
             return Flux.empty();
         }
@@ -172,7 +201,8 @@ public class CodeGenStreamSessionService {
         private boolean completed;
         private Disposable upstreamDisposable;
         private long finishedAt;
+        private AtomicLong nextSeq = new AtomicLong(0);
     }
 
-    public record SessionAttachResult(String sessionId, Flux<String> dataFlux) {}
+    public record SessionAttachResult(String sessionId, Flux<String> dataFlux, boolean sessionMissing) {}
 }

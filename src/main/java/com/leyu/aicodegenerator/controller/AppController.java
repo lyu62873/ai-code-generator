@@ -365,6 +365,7 @@ public class AppController {
                                                @RequestParam String message,
                                                @RequestParam(required = false) String sessionId,
                                                @RequestParam(defaultValue = "0") Long lastSeq,
+                                               @RequestParam(defaultValue = "false") Boolean resumeOnly,
                                                HttpServletRequest request) {
         logInterfaceExecution(
                 "/app/chat/gen/code",
@@ -382,8 +383,23 @@ public class AppController {
                 message,
                 sessionId,
                 lastSeq == null ? 0 : lastSeq,
+                Boolean.TRUE.equals(resumeOnly),
                 () -> appService.chatToGenCode(appId, message, loginUser)
         );
+
+        if (attachResult.sessionMissing()) {
+            String errorJson = JSONUtil.toJsonStr(Map.of("message", "Session expired or missing. Please retry generation."));
+            return Flux.just(
+                    ServerSentEvent.<String>builder()
+                            .event("business-error")
+                            .data(errorJson)
+                            .build(),
+                    ServerSentEvent.<String>builder()
+                            .event("done")
+                            .data("")
+                            .build()
+            );
+        }
 
         Flux<ServerSentEvent<String>> sessionEventFlux = Flux.just(
                 ServerSentEvent.<String>builder()
@@ -393,8 +409,7 @@ public class AppController {
         );
 
         Flux<ServerSentEvent<String>> dataEventFlux = attachResult.dataFlux().map(chunk -> {
-            Map<String, String> wrapper = Map.of("d", chunk);
-            String jsonData = JSONUtil.toJsonStr(wrapper);
+            String jsonData = chunk;
             return ServerSentEvent.<String>builder()
                     .data(jsonData)
                     .build();
