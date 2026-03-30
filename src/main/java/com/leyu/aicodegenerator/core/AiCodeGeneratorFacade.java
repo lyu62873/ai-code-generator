@@ -9,8 +9,6 @@ import com.leyu.aicodegenerator.ai.model.MultiFileCodeResult;
 import com.leyu.aicodegenerator.ai.model.message.AiResponseMessage;
 import com.leyu.aicodegenerator.ai.model.message.ToolExecutedMessage;
 import com.leyu.aicodegenerator.ai.model.message.ToolRequestMessage;
-import com.leyu.aicodegenerator.constant.AppConstant;
-import com.leyu.aicodegenerator.core.builder.VueProjectBuilder;
 import com.leyu.aicodegenerator.core.parser.CodeParserExecutor;
 import com.leyu.aicodegenerator.core.saver.CodeFileSaverExecutor;
 import com.leyu.aicodegenerator.exception.BusinessException;
@@ -19,7 +17,6 @@ import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.service.TokenStream;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -34,8 +31,6 @@ public class AiCodeGeneratorFacade {
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
-    @Autowired
-    private VueProjectBuilder vueProjectBuilder;
 
     /**
      *
@@ -142,8 +137,10 @@ public class AiCodeGeneratorFacade {
                         sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
                     })
                     .onCompleteResponse(response -> {
-                        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + "vue_project_" + appId;
-                        vueProjectBuilder.buildProject(projectPath);
+                        AiResponseMessage deploymentHintMessage = new AiResponseMessage(
+                                "\n\nPlease click Deploy to create or update the webpage."
+                        );
+                        sink.next(JSONUtil.toJsonStr(deploymentHintMessage));
                         sink.complete();
                     })
                     .onError(e -> {

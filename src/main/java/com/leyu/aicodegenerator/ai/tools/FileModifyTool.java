@@ -77,19 +77,9 @@ public class FileModifyTool extends BaseTool {
         String relativeFilePath = arguments.getStr("relativeFilePath");
         String oldContent = arguments.getStr("oldContent");
         String newContent = arguments.getStr("newContent");
-        return String.format("""
-                [Tool Executed] %s %s
-                
-                Original:
-                ```
-                %s
-                ```
-                
-                Replaced by:
-                ```
-                %s
-                ```
-                
-                """, getDisplayName(), relativeFilePath, oldContent, newContent);
+        int oldChars = oldContent == null ? 0 : oldContent.length();
+        int newChars = newContent == null ? 0 : newContent.length();
+        return String.format("[Tool Executed] %s %s (oldChars=%d, newChars=%d)",
+                getDisplayName(), relativeFilePath, oldChars, newChars);
     }
 }

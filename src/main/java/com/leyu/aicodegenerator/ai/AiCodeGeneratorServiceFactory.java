@@ -2,10 +2,7 @@ package com.leyu.aicodegenerator.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.leyu.aicodegenerator.ai.tools.ImageSearchTool;
-import com.leyu.aicodegenerator.ai.tools.MermaidDiagramTool;
 import com.leyu.aicodegenerator.ai.tools.ToolManager;
-import com.leyu.aicodegenerator.ai.tools.UndrawIllustrationTool;
 import com.leyu.aicodegenerator.exception.BusinessException;
 import com.leyu.aicodegenerator.exception.ErrorCode;
 import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
@@ -23,8 +20,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.stream.Stream;
 
 /** Method used by this component. */
 @Configuration
@@ -96,8 +91,8 @@ public class AiCodeGeneratorServiceFactory {
                 AiCodeGeneratorService aiCodeGeneratorService = AiServices.builder(AiCodeGeneratorService.class)
                         .streamingChatModel(reasoningStreamingChatModel)
                         .chatMemoryProvider(memoryId -> chatMemory)
-                        .tools(toolManager.getAllTools())
-                        .maxSequentialToolsInvocations(20)
+                        .tools((Object[]) toolManager.getAllTools())
+                        .maxSequentialToolsInvocations(8)
                         .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(
                                 toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()
                         ))

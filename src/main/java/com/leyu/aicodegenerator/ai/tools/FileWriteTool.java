@@ -1,6 +1,5 @@
 package com.leyu.aicodegenerator.ai.tools;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.json.JSONObject;
 import com.leyu.aicodegenerator.constant.AppConstant;
 import dev.langchain4j.agent.tool.P;
@@ -68,13 +67,8 @@ public class FileWriteTool extends BaseTool {
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");
-        String suffix = FileUtil.getSuffix(relativeFilePath);
         String content = arguments.getStr("content");
-        return String.format("""
-                [Tool Executed] %s %s
-                ```%s
-                %s
-                ```
-                """, getDisplayName(), relativeFilePath, suffix, content);
+        int charCount = content == null ? 0 : content.length();
+        return String.format("[Tool Executed] %s %s (chars=%d)", getDisplayName(), relativeFilePath, charCount);
     }
 }

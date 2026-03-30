@@ -33,8 +33,8 @@ public class ReasoningStreamingChatModelConfig {
                 .baseUrl(baseUrl)
                 .modelName(modelName)
                 .maxTokens(maxTokens)
-                .logRequests(true)
-                .logResponses(true)
+                .logRequests(false)
+                .logResponses(false)
                 .strictJsonSchema(false)
                 .build();
     }
