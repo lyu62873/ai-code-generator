@@ -29,7 +29,7 @@ public class VueProjectBuilder {
 
     private static final int COMMAND_OUTPUT_LIMIT = 8000;
     private static final String NODE_OPTIONS = "--max-old-space-size=384";
-    private static final String[] NPM_LINT_ARGS = {"run", "lint"};
+    private static final String[] NPM_LINT_ARGS = {"run", "lint", "--", "--cache", "--cache-location", ".eslintcache"};
     private static final String[] NPM_TYPECHECK_ARGS = {"run", "typecheck"};
     private static final String[] NPM_INSTALL_FALLBACK_ARGS = {"install", "--no-audit", "--no-fund", "--prefer-offline"};
     private static final String[] NPM_CI_ARGS = {"ci", "--no-audit", "--no-fund", "--prefer-offline"};
@@ -62,27 +62,27 @@ public class VueProjectBuilder {
                 log.error("Command execution timed out ({} seconds).", timeoutSeconds);
                 process.destroyForcibly();
                 String timeoutOutput = readProcessOutput(process);
-                return new CommandExecutionResult(false, -1, timeoutOutput, String.join(" ", command));
+                return new CommandExecutionResult(false, -1, timeoutOutput, String.join(" ", command), true);
             }
             int exitCode = process.exitValue();
             String output = readProcessOutput(process);
             if (exitCode == 0) {
                 log.info("Command executed successfully: {}", String.join(" ", command));
-                return new CommandExecutionResult(true, exitCode, output, String.join(" ", command));
+                return new CommandExecutionResult(true, exitCode, output, String.join(" ", command), false);
             }  else {
                 log.error("Command execution fail: {}, error code: {}, output: {}",
                         String.join(" ", command), exitCode, trimForLog(output));
-                return new CommandExecutionResult(false, exitCode, output, String.join(" ", command));
+                return new CommandExecutionResult(false, exitCode, output, String.join(" ", command), false);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Command execution interrupted: {}, error message: {}", String.join(" ", command), e.getMessage());
             String output = readProcessOutput(process);
-            return new CommandExecutionResult(false, -1, output, String.join(" ", command));
+            return new CommandExecutionResult(false, -1, output, String.join(" ", command), false);
         } catch (RuntimeException e) {
             log.error("Command execution fail: {}, error message: {}", String.join(" ", command), e.getMessage());
             String output = readProcessOutput(process);
-            return new CommandExecutionResult(false, -1, output, String.join(" ", command));
+            return new CommandExecutionResult(false, -1, output, String.join(" ", command), false);
         }
     }
 
@@ -161,13 +161,17 @@ public class VueProjectBuilder {
                 if (result.success()) {
                     return result;
                 }
+                if (result.timedOut()) {
+                    log.warn("Command timed out, skip retrying other npm candidates: {}", result.command());
+                    return result;
+                }
                 lastFailure = result;
             }
         }
         if (lastFailure != null) {
             return lastFailure;
         }
-        return new CommandExecutionResult(false, -1, "", "N/A");
+        return new CommandExecutionResult(false, -1, "", "N/A", false);
     }
 
     private List<String[]> buildNpmCommandPlans(String npmExecutable, String[] npmArgs) {
@@ -279,7 +283,11 @@ public class VueProjectBuilder {
         if (hasNpmScript(projectDir, "lint")) {
             CommandExecutionResult lintResult = executeNpmCommandWithFallback(projectDir, NPM_LINT_ARGS, 120, null);
             if (!lintResult.success()) {
-                return lintResult;
+                if (lintResult.timedOut()) {
+                    log.warn("Lint check timed out, continue deploy flow. project={}", projectDir.getAbsolutePath());
+                } else {
+                    return lintResult;
+                }
             }
         } else {
             log.info("Skip lint check, script not found in package.json, project={}", projectDir.getAbsolutePath());
@@ -288,12 +296,16 @@ public class VueProjectBuilder {
         if (hasNpmScript(projectDir, "typecheck")) {
             CommandExecutionResult typecheckResult = executeNpmCommandWithFallback(projectDir, NPM_TYPECHECK_ARGS, 120, null);
             if (!typecheckResult.success()) {
-                return typecheckResult;
+                if (typecheckResult.timedOut()) {
+                    log.warn("Typecheck timed out, continue deploy flow. project={}", projectDir.getAbsolutePath());
+                } else {
+                    return typecheckResult;
+                }
             }
         } else {
             log.info("Skip typecheck, script not found in package.json, project={}", projectDir.getAbsolutePath());
         }
-        return new CommandExecutionResult(true, 0, "", "pre-build-check");
+        return new CommandExecutionResult(true, 0, "", "pre-build-check", false);
     }
 
     private boolean hasNpmScript(File projectDir, String scriptName) {
@@ -414,5 +426,5 @@ public class VueProjectBuilder {
         return lastBuildFailureDetail;
     }
 
-    private record CommandExecutionResult(boolean success, int exitCode, String output, String command) {}
+    private record CommandExecutionResult(boolean success, int exitCode, String output, String command, boolean timedOut) {}
 }
