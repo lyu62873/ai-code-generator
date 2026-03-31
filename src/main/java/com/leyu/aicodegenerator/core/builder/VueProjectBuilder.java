@@ -7,17 +7,26 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.TimeUnit;
 
 /** Build Project Async. */
 @Slf4j
 @Component
 public class VueProjectBuilder {
+
+    private static final String NODE_OPTIONS = "--max-old-space-size=384";
+    private static final String[] NPM_INSTALL_FALLBACK_ARGS = {"install", "--no-audit", "--no-fund", "--prefer-offline"};
+    private static final String[] NPM_CI_ARGS = {"ci", "--no-audit", "--no-fund", "--prefer-offline"};
+    private static final ReentrantLock BUILD_LOCK = new ReentrantLock();
 
     @Value("${app.builder.npm-path:}")
     private String npmPath;
@@ -33,11 +42,11 @@ public class VueProjectBuilder {
     }
 
 /** Execute Command. */
-    private boolean executeCommand(File workingDir, String[] command, int timeoutSeconds) {
+    private boolean executeCommand(File workingDir, String[] envp, String[] command, int timeoutSeconds) {
         try {
             log.info("Executing command: {} on working directory: {}", String.join(" ", command), workingDir.getAbsolutePath());
             Process process = RuntimeUtil.exec(
-                    null, workingDir, command
+                    envp, workingDir, command
             );
 
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
@@ -54,7 +63,11 @@ public class VueProjectBuilder {
                 log.error("Command execution fail: {}, error message: {}", String.join(" ", command), exitCode);
                 return false;
             }
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Command execution interrupted: {}, error message: {}", String.join(" ", command), e.getMessage());
+            return false;
+        } catch (RuntimeException e) {
             log.error("Command execution fail: {}, error message: {}", String.join(" ", command), e.getMessage());
             return false;
         }
@@ -62,12 +75,24 @@ public class VueProjectBuilder {
 
 /** Execute Npm Install. */
     private boolean executeNpmInstall(File projectDir) {
-        return executeNpmCommandWithFallback(projectDir, new String[]{"install"}, 300);
+        File lockFile = new File(projectDir, "package-lock.json");
+        if (lockFile.exists() && lockFile.isFile() && shouldSkipInstall(projectDir, lockFile)) {
+            log.info("Skip dependency install for {}, lock hash unchanged", projectDir.getAbsolutePath());
+            return true;
+        }
+
+        String[] args = (lockFile.exists() && lockFile.isFile()) ? NPM_CI_ARGS : NPM_INSTALL_FALLBACK_ARGS;
+        boolean success = executeNpmCommandWithFallback(projectDir, args, 300, null);
+        if (success && lockFile.exists() && lockFile.isFile()) {
+            saveLockHash(projectDir, lockFile);
+        }
+        return success;
     }
 
 /** Execute Npm Build. */
     private boolean executeNpmBuild(File projectDir) {
-        return executeNpmCommandWithFallback(projectDir, new String[]{"run", "build"}, 180);
+        return executeNpmCommandWithFallback(projectDir, new String[]{"run", "build"}, 180,
+                new String[]{"NODE_OPTIONS=" + NODE_OPTIONS});
     }
 
 
@@ -96,7 +121,7 @@ public class VueProjectBuilder {
         return new ArrayList<>(candidates);
     }
 
-    private boolean executeNpmCommandWithFallback(File projectDir, String[] npmArgs, int timeoutSeconds) {
+    private boolean executeNpmCommandWithFallback(File projectDir, String[] npmArgs, int timeoutSeconds, String[] envp) {
         List<String> candidates = resolveNpmExecutables();
         for (String candidate : candidates) {
             File candidateFile = new File(candidate);
@@ -109,7 +134,7 @@ public class VueProjectBuilder {
             List<String[]> commandPlans = buildNpmCommandPlans(candidate, npmArgs);
             for (String[] command : commandPlans) {
                 log.info("Trying npm command with executable candidate: {}", String.join(" ", command));
-                boolean success = executeCommand(projectDir, command, timeoutSeconds);
+                boolean success = executeCommand(projectDir, envp, command, timeoutSeconds);
                 if (success) {
                     return true;
                 }
@@ -159,35 +184,90 @@ public class VueProjectBuilder {
         return command;
     }
 
+    private boolean shouldSkipInstall(File projectDir, File lockFile) {
+        try {
+            File nodeModules = new File(projectDir, "node_modules");
+            if (!nodeModules.exists() || !nodeModules.isDirectory()) {
+                return false;
+            }
+
+            Path cachePath = getLockHashCachePath(projectDir);
+            if (!Files.exists(cachePath) || !Files.isRegularFile(cachePath)) {
+                return false;
+            }
+
+            String currentHash = sha256(lockFile.toPath());
+            String cachedHash = Files.readString(cachePath).trim();
+            return StrUtil.isNotBlank(currentHash) && currentHash.equals(cachedHash);
+        } catch (Exception e) {
+            log.warn("Failed checking install cache, fallback to install: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private void saveLockHash(File projectDir, File lockFile) {
+        try {
+            String hash = sha256(lockFile.toPath());
+            if (StrUtil.isBlank(hash)) {
+                return;
+            }
+            Path cachePath = getLockHashCachePath(projectDir);
+            Files.createDirectories(cachePath.getParent());
+            Files.writeString(cachePath, hash, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            log.warn("Failed writing install cache hash: {}", e.getMessage());
+        }
+    }
+
+    private Path getLockHashCachePath(File projectDir) {
+        return projectDir.toPath().resolve(".aicodegen").resolve("lock.sha256");
+    }
+
+    private String sha256(Path filePath) throws Exception {
+        byte[] bytes = Files.readAllBytes(filePath);
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(bytes);
+        StringBuilder hex = new StringBuilder();
+        for (byte b : hash) {
+            hex.append(String.format("%02x", b));
+        }
+        return hex.toString();
+    }
+
 /** Build Project. */
     public boolean buildProject(String projectPath) {
-        File projectDir = new File(projectPath);
-        if (!projectDir.exists() || !projectDir.isDirectory()) {
-            log.error("Project directory doesn't exist or is not a directory: {}", projectPath);
-            return false;
-        }
+        BUILD_LOCK.lock();
+        try {
+            File projectDir = new File(projectPath);
+            if (!projectDir.exists() || !projectDir.isDirectory()) {
+                log.error("Project directory doesn't exist or is not a directory: {}", projectPath);
+                return false;
+            }
 
-        File packageJson = new File(projectDir, "package.json");
-        if (!packageJson.exists() || !packageJson.isFile()) {
-            log.error("package.json file doesn't exist or is not a file: {}", packageJson.getAbsolutePath());
-            return false;
-        }
-        log.info("Start building Vue project: {}", projectPath);
-        if (!executeNpmInstall(projectDir)) {
-            log.error("npm install Failed");
-            return false;
-        }
-        if (!executeNpmBuild(projectDir)) {
-            log.error("npm build Failed");
-            return false;
-        }
+            File packageJson = new File(projectDir, "package.json");
+            if (!packageJson.exists() || !packageJson.isFile()) {
+                log.error("package.json file doesn't exist or is not a file: {}", packageJson.getAbsolutePath());
+                return false;
+            }
+            log.info("Start building Vue project: {}", projectPath);
+            if (!executeNpmInstall(projectDir)) {
+                log.error("npm install Failed");
+                return false;
+            }
+            if (!executeNpmBuild(projectDir)) {
+                log.error("npm build Failed");
+                return false;
+            }
 
-        File distDir = new File(projectDir, "dist");
-        if (!distDir.exists()) {
-            log.error("Construction complete but dist directory doesn't exist: {}", distDir.getAbsolutePath());
-            return false;
+            File distDir = new File(projectDir, "dist");
+            if (!distDir.exists()) {
+                log.error("Construction complete but dist directory doesn't exist: {}", distDir.getAbsolutePath());
+                return false;
+            }
+            log.info("Vue project successfully constructed: {}", distDir.getAbsolutePath());
+            return true;
+        } finally {
+            BUILD_LOCK.unlock();
         }
-        log.info("Vue project successfully constructed: {}", distDir.getAbsolutePath());
-        return true;
     }
 }
