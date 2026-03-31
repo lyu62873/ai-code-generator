@@ -6,6 +6,8 @@ import java.util.regex.Pattern;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
+import java.util.function.Supplier;
 
 import org.springframework.stereotype.Service;
 
@@ -41,6 +43,7 @@ public class AiCodeGeneratorFacade {
     private static final int REPAIR_TIMEOUT_SECONDS = 180;
     private static final int BUILD_ERROR_MAX_CHARS = 6000;
     private static final int PRECHECK_FIX_MAX_ROUNDS = 2;
+    private static final int MULTI_FILE_STAGE_MAX_RETRIES = 2;
     private static final Pattern HTML_BLOCK_PATTERN = Pattern.compile("```html[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern CSS_BLOCK_PATTERN = Pattern.compile("```css[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern JS_BLOCK_PATTERN = Pattern.compile("```(?:js|javascript)[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
@@ -203,8 +206,17 @@ public class AiCodeGeneratorFacade {
         return Flux.create(sink -> {
             try {
                 sink.next("\n\n[Stage 1/3] Generating HTML structure...\n");
-                String htmlRaw = aiCodeGeneratorService.generateMultiFileHtmlStage(userMessage);
+                String htmlRaw = invokeStageWithRetry(
+                        "HTML",
+                        appId,
+                        () -> aiCodeGeneratorService.generateMultiFileHtmlStage(userMessage)
+                );
                 String htmlCode = extractCodeFromBlock(htmlRaw, HTML_BLOCK_PATTERN, "html");
+                sink.next("""
+                        ```html
+                        %s
+                        ```
+                        """.formatted(htmlCode));
 
                 sink.next("\n\n[Stage 2/3] Generating CSS styles...\n");
                 String cssInput = """
@@ -216,8 +228,17 @@ public class AiCodeGeneratorFacade {
                         %s
                         ```
                         """.formatted(userMessage, htmlCode);
-                String cssRaw = aiCodeGeneratorService.generateMultiFileCssStage(cssInput);
+                String cssRaw = invokeStageWithRetry(
+                        "CSS",
+                        appId,
+                        () -> aiCodeGeneratorService.generateMultiFileCssStage(cssInput)
+                );
                 String cssCode = extractCodeFromBlock(cssRaw, CSS_BLOCK_PATTERN, "css");
+                sink.next("""
+                        ```css
+                        %s
+                        ```
+                        """.formatted(cssCode));
 
                 sink.next("\n\n[Stage 3/3] Generating JavaScript interactions...\n");
                 String jsInput = """
@@ -234,8 +255,17 @@ public class AiCodeGeneratorFacade {
                         %s
                         ```
                         """.formatted(userMessage, htmlCode, cssCode);
-                String jsRaw = aiCodeGeneratorService.generateMultiFileJsStage(jsInput);
+                String jsRaw = invokeStageWithRetry(
+                        "JS",
+                        appId,
+                        () -> aiCodeGeneratorService.generateMultiFileJsStage(jsInput)
+                );
                 String jsCode = extractCodeFromBlock(jsRaw, JS_BLOCK_PATTERN, "javascript");
+                sink.next("""
+                        ```javascript
+                        %s
+                        ```
+                        """.formatted(jsCode));
 
                 MultiFileCodeResult result = new MultiFileCodeResult();
                 result.setHtmlCode(htmlCode);
@@ -243,27 +273,69 @@ public class AiCodeGeneratorFacade {
                 result.setJsCode(jsCode);
                 File savedDir = CodeFileSaverExecutor.executeSaver(result, CodeGenTypeEnum.MULTI_FILE, appId);
                 log.info("Save Success，path：{}", savedDir.getAbsolutePath());
-
-                String combinedOutput = """
-                        ```html
-                        %s
-                        ```
-
-                        ```css
-                        %s
-                        ```
-
-                        ```javascript
-                        %s
-                        ```
-                        """.formatted(htmlCode, cssCode, jsCode);
-                sink.next(combinedOutput);
                 sink.complete();
             } catch (Exception e) {
                 log.error("Generate multi-file by stages failed, appId={}, error={}", appId, e.getMessage(), e);
-                sink.error(e);
+                try {
+                    sink.next("\n\nStage generation failed, fallback to single-pass multi-file generation...\n");
+                    MultiFileCodeResult fallbackResult = invokeStageWithRetry(
+                            "FALLBACK_FULL",
+                            appId,
+                            () -> aiCodeGeneratorService.generateMultiFileCode(userMessage)
+                    );
+                    File savedDir = CodeFileSaverExecutor.executeSaver(fallbackResult, CodeGenTypeEnum.MULTI_FILE, appId);
+                    log.info("Fallback save success，path：{}", savedDir.getAbsolutePath());
+                    sink.next("""
+                            ```html
+                            %s
+                            ```
+
+                            ```css
+                            %s
+                            ```
+
+                            ```javascript
+                            %s
+                            ```
+                            """.formatted(
+                            StrUtil.blankToDefault(fallbackResult.getHtmlCode(), ""),
+                            StrUtil.blankToDefault(fallbackResult.getCssCode(), ""),
+                            StrUtil.blankToDefault(fallbackResult.getJsCode(), "")
+                    ));
+                    sink.complete();
+                } catch (Exception fallbackError) {
+                    log.error("Fallback multi-file generation failed, appId={}, error={}", appId, fallbackError.getMessage(), fallbackError);
+                    sink.error(fallbackError);
+                }
             }
         });
+    }
+
+    private <T> T invokeStageWithRetry(String stageName, Long appId, Supplier<T> supplier) {
+        RuntimeException lastException = null;
+        int attempts = MULTI_FILE_STAGE_MAX_RETRIES + 1;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                log.info("Multi-file stage invoke, stage={}, appId={}, attempt={}/{}", stageName, appId, attempt, attempts);
+                return supplier.get();
+            } catch (RuntimeException e) {
+                lastException = e;
+                log.warn("Multi-file stage failed, stage={}, appId={}, attempt={}/{}, error={}",
+                        stageName, appId, attempt, attempts, e.getMessage());
+                if (attempt < attempts) {
+                    long backoffMillis = 300L * attempt;
+                    LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(backoffMillis));
+                    if (Thread.currentThread().isInterrupted()) {
+                        Thread.currentThread().interrupt();
+                        throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                                "Stage retry interrupted, stage=" + stageName + ", appId=" + appId);
+                    }
+                }
+            }
+        }
+        throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                "Stage failed after retries, stage=" + stageName + ", appId=" + appId + ", error="
+                        + (lastException == null ? "unknown" : lastException.getMessage()));
     }
 
     private String extractCodeFromBlock(String raw, Pattern pattern, String language) {

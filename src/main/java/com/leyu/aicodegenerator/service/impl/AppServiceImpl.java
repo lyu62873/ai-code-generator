@@ -444,10 +444,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     /**
-     * Simplified image-collection rules for HTML / MULTI_FILE:
-     * - If image keywords are hit => true
-     * - If only style/copy/fix keywords are hit (and no image keywords) => false
-     * - Otherwise: if it looks like a "new page request" => true
+     * Strict image-collection rules for HTML / MULTI_FILE:
+     * - Collect images only when user explicitly requests images or replacing existing images.
+     * - Otherwise do not collect.
      */
     private boolean shouldCollectImagesByRule(String message) {
         if (StrUtil.isBlank(message)) {
@@ -462,34 +461,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 "replace image", "replace images", "换图", "换成", "图库"
         };
 
-        String[] nonImageKeywords = {
-                "颜色", "字体", "间距", "边距", "布局微调", "对齐", "文案", "文本", "修复", "bug",
-                "color", "font", "spacing", "margin", "padding", "align", "text", "copywriting", "fix bug"
-        };
-
         boolean hasImageHint = Arrays.stream(imageKeywords).anyMatch(normalized::contains);
-        if (hasImageHint) {
-            return true;
-        }
-
-        boolean hasNonImageHint = Arrays.stream(nonImageKeywords).anyMatch(normalized::contains);
-        if (hasNonImageHint) {
-            return false;
-        }
-
-        // Default strategy: for requests like "create a new page/site", prefer adding images.
-        return isLikelyNewPageRequest(normalized);
-    }
-
-/** Is Likely New Page Request. */
-    private boolean isLikelyNewPageRequest(String normalizedMessage) {
-        String[] newPageKeywords = {
-                "做一个", "生成一个", "创建一个", "设计一个", "新建",
-                "build", "create", "generate", "design",
-                "website", "web page", "landing page", "home page", "portfolio",
-                "官网", "页面", "网站", "博客", "商城", "后台管理"
-        };
-        return Arrays.stream(newPageKeywords).anyMatch(normalizedMessage::contains);
+        return hasImageHint;
     }
 
 
