@@ -431,10 +431,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
 
         CodeGenTypeEnum selectedCodeGenType = fluxToCodeGenType(aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt));
-        // FIX ATTEMPTED: temporary Vue fallback disabled to restore VUE_PROJECT routing.
-        // if (selectedCodeGenType == CodeGenTypeEnum.VUE_PROJECT) {
-        //     selectedCodeGenType = CodeGenTypeEnum.MULTI_FILE;
-        // }
+        // TOFIX Vue Project Quality: temporary fallback to MULTI_FILE until Vue quality is stable.
+        if (selectedCodeGenType == CodeGenTypeEnum.VUE_PROJECT) {
+            selectedCodeGenType = CodeGenTypeEnum.MULTI_FILE;
+        }
         app.setCodeGenType(selectedCodeGenType.getValue());
 
         boolean result = save(app);

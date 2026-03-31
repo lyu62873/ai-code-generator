@@ -14,6 +14,8 @@ import com.leyu.aicodegenerator.ai.model.MultiFileCodeResult;
 import com.leyu.aicodegenerator.ai.model.message.AiResponseMessage;
 import com.leyu.aicodegenerator.ai.model.message.ToolExecutedMessage;
 import com.leyu.aicodegenerator.ai.model.message.ToolRequestMessage;
+import com.leyu.aicodegenerator.constant.AppConstant;
+import com.leyu.aicodegenerator.core.builder.VueProjectBuilder;
 import com.leyu.aicodegenerator.core.parser.CodeParserExecutor;
 import com.leyu.aicodegenerator.core.saver.CodeFileSaverExecutor;
 import com.leyu.aicodegenerator.exception.BusinessException;
@@ -36,9 +38,12 @@ public class AiCodeGeneratorFacade {
 
     private static final int REPAIR_TIMEOUT_SECONDS = 180;
     private static final int BUILD_ERROR_MAX_CHARS = 6000;
+    private static final int PRECHECK_FIX_MAX_ROUNDS = 2;
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
+    @Resource
+    private VueProjectBuilder vueProjectBuilder;
 
     /**
      *
@@ -146,10 +151,15 @@ public class AiCodeGeneratorFacade {
                     })
                     .onCompleteResponse(response -> {
                         AiResponseMessage deploymentHintMessage = new AiResponseMessage(
-                                "\n\nPlease click Deploy to create or update the webpage."
+                                "\n\nGeneration stream finalized. Background pre-check will continue. You can click Deploy later."
                         );
                         sink.next(JSONUtil.toJsonStr(deploymentHintMessage));
                         sink.complete();
+
+                        // Run pre-check after stream finalization to avoid overlapping with stream persistence memory pressure.
+                        Thread.ofVirtual().name("vue-post-precheck-" + appId + "-" + System.currentTimeMillis())
+                                .start(() -> runVueProjectPrecheckWithRepair(appId,
+                                        AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + "vue_project_" + appId));
                     })
                     .onError(e -> {
                         log.error("Vue 项目流式生成失败，appId={}，错误={}", appId, e.getMessage());
@@ -157,6 +167,30 @@ public class AiCodeGeneratorFacade {
                     })
                     .start();
         });
+    }
+
+    private boolean runVueProjectPrecheckWithRepair(Long appId, String projectPath) {
+        boolean checkSuccess = vueProjectBuilder.precheckProject(projectPath);
+        String checkFailureDetail = vueProjectBuilder.getLastBuildFailureDetail();
+        for (int round = 1; !checkSuccess && round <= PRECHECK_FIX_MAX_ROUNDS; round++) {
+            if (StrUtil.isBlank(checkFailureDetail)) {
+                break;
+            }
+            log.warn("Vue pre-check failed, triggering auto-fix round {}/{}, appId={}",
+                    round, PRECHECK_FIX_MAX_ROUNDS, appId);
+            boolean repairTriggered = repairVueProjectByBuildError(
+                    appId,
+                    checkFailureDetail,
+                    round,
+                    PRECHECK_FIX_MAX_ROUNDS
+            );
+            if (!repairTriggered) {
+                break;
+            }
+            checkSuccess = vueProjectBuilder.precheckProject(projectPath);
+            checkFailureDetail = vueProjectBuilder.getLastBuildFailureDetail();
+        }
+        return checkSuccess;
     }
 
     public boolean repairVueProjectByBuildError(Long appId, String buildError, int round, int maxRounds) {
@@ -189,6 +223,9 @@ public class AiCodeGeneratorFacade {
 
         TokenStream repairStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, repairPrompt);
         repairStream
+                .onPartialResponse(partialResponse -> {
+                    // Required by TokenStream contract; repair flow does not need to stream these chunks.
+                })
                 .onCompleteResponse(response -> completionLatch.countDown())
                 .onError(e -> {
                     hasError.set(true);

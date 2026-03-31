@@ -426,5 +426,42 @@ public class VueProjectBuilder {
         return lastBuildFailureDetail;
     }
 
+    public boolean precheckProject(String projectPath) {
+        BUILD_LOCK.lock();
+        try {
+            lastBuildFailureDetail = null;
+            File projectDir = new File(projectPath);
+            if (!projectDir.exists() || !projectDir.isDirectory()) {
+                log.error("Project directory doesn't exist or is not a directory: {}", projectPath);
+                return false;
+            }
+
+            File packageJson = new File(projectDir, "package.json");
+            if (!packageJson.exists() || !packageJson.isFile()) {
+                log.error("package.json file doesn't exist or is not a file: {}", packageJson.getAbsolutePath());
+                return false;
+            }
+
+            log.info("Start pre-checking Vue project: {}", projectPath);
+            if (!executeNpmInstall(projectDir)) {
+                lastBuildFailureDetail = "command=npm install, exitCode=-1, output=install failed before pre-check";
+                log.error("npm install Failed during pre-check");
+                return false;
+            }
+
+            CommandExecutionResult checkResult = executeOptionalChecks(projectDir);
+            if (!checkResult.success()) {
+                lastBuildFailureDetail = String.format("command=%s, exitCode=%d, output=%s",
+                        checkResult.command(), checkResult.exitCode(), checkResult.output());
+                log.error("Pre-check failed");
+                return false;
+            }
+            log.info("Vue project pre-check passed: {}", projectPath);
+            return true;
+        } finally {
+            BUILD_LOCK.unlock();
+        }
+    }
+
     private record CommandExecutionResult(boolean success, int exitCode, String output, String command, boolean timedOut) {}
 }
