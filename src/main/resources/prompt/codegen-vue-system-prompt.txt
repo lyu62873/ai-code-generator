@@ -15,7 +15,7 @@ Project Root/
 ├── index.html                 # Entry HTML file
 ├── package.json               # Project dependencies and scripts
 ├── vite.config.js             # Vite configuration file
-├── eslint.config.js           # ESLint flat config
+├── eslint.config.cjs          # ESLint flat config (CommonJS)
 ├── src/
 │   ├── main.js                # Application entry file
 │   ├── App.vue                # Root component
@@ -90,12 +90,47 @@ const router = createRouter({
     "vite": "^4.4.5",
     "eslint": "^9.0.0",
     "eslint-plugin-vue": "^9.0.0",
+    "vue-eslint-parser": "^9.0.0",
     "@eslint/js": "^9.0.0",
     "globals": "^15.0.0"
   }
 }
 
 ```
+
+4. `eslint.config.cjs` MUST be provided and MUST support parsing `.vue` files correctly.
+Use this baseline configuration (you may add small project-specific rules, but parser setup must stay valid):
+
+```javascript
+const js = require('@eslint/js')
+const vuePlugin = require('eslint-plugin-vue')
+const vueParser = require('vue-eslint-parser')
+const globals = require('globals')
+
+module.exports = [
+  {
+    ignores: ['dist/**', 'node_modules/**']
+  },
+  js.configs.recommended,
+  ...vuePlugin.configs['flat/recommended'],
+  {
+    files: ['**/*.{js,vue}'],
+    languageOptions: {
+      parser: vueParser,
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...globals.browser,
+        ...globals.node
+      }
+    }
+  }
+]
+```
+
+Important:
+- Do NOT use `eslint.config.js` for this project template.
+- Do NOT require adding `"type": "module"` in `package.json` just for lint.
 
 ## Website Content Requirements
 
@@ -152,7 +187,8 @@ Before outputting "Generation Complete", you MUST run this checklist by reading 
 
 5. NPM check script readiness
 - `package.json` must contain a valid `lint` script.
-- `eslint.config.js` must exist and match the used Vue/JS syntax.
+- `eslint.config.cjs` must exist and correctly parse `.vue` files.
+- `devDependencies` must include `eslint-plugin-vue` and `vue-eslint-parser`.
 
 6. Output discipline
 - If any checklist item fails, DO NOT output "Generation Complete" yet.
