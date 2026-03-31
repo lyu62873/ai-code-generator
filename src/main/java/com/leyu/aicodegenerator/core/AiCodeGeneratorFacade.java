@@ -5,6 +5,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
@@ -206,17 +207,13 @@ public class AiCodeGeneratorFacade {
         return Flux.create(sink -> {
             try {
                 sink.next("\n\n[Stage 1/3] Generating HTML structure...\n");
-                String htmlRaw = invokeStageWithRetry(
+                String htmlRaw = collectStageStreamWithRetry(
                         "HTML",
                         appId,
-                        () -> aiCodeGeneratorService.generateMultiFileHtmlStage(userMessage)
+                        () -> aiCodeGeneratorService.generateMultiFileHtmlStageStream(userMessage),
+                        sink
                 );
                 String htmlCode = extractCodeFromBlock(htmlRaw, HTML_BLOCK_PATTERN, "html");
-                sink.next("""
-                        ```html
-                        %s
-                        ```
-                        """.formatted(htmlCode));
 
                 sink.next("\n\n[Stage 2/3] Generating CSS styles...\n");
                 String cssInput = """
@@ -228,17 +225,13 @@ public class AiCodeGeneratorFacade {
                         %s
                         ```
                         """.formatted(userMessage, htmlCode);
-                String cssRaw = invokeStageWithRetry(
+                String cssRaw = collectStageStreamWithRetry(
                         "CSS",
                         appId,
-                        () -> aiCodeGeneratorService.generateMultiFileCssStage(cssInput)
+                        () -> aiCodeGeneratorService.generateMultiFileCssStageStream(cssInput),
+                        sink
                 );
                 String cssCode = extractCodeFromBlock(cssRaw, CSS_BLOCK_PATTERN, "css");
-                sink.next("""
-                        ```css
-                        %s
-                        ```
-                        """.formatted(cssCode));
 
                 sink.next("\n\n[Stage 3/3] Generating JavaScript interactions...\n");
                 String jsInput = """
@@ -255,17 +248,13 @@ public class AiCodeGeneratorFacade {
                         %s
                         ```
                         """.formatted(userMessage, htmlCode, cssCode);
-                String jsRaw = invokeStageWithRetry(
+                String jsRaw = collectStageStreamWithRetry(
                         "JS",
                         appId,
-                        () -> aiCodeGeneratorService.generateMultiFileJsStage(jsInput)
+                        () -> aiCodeGeneratorService.generateMultiFileJsStageStream(jsInput),
+                        sink
                 );
                 String jsCode = extractCodeFromBlock(jsRaw, JS_BLOCK_PATTERN, "javascript");
-                sink.next("""
-                        ```javascript
-                        %s
-                        ```
-                        """.formatted(jsCode));
 
                 MultiFileCodeResult result = new MultiFileCodeResult();
                 result.setHtmlCode(htmlCode);
@@ -309,6 +298,79 @@ public class AiCodeGeneratorFacade {
                 }
             }
         });
+    }
+
+    private String collectStageStreamWithRetry(String stageName,
+                                               Long appId,
+                                               Supplier<Flux<String>> streamSupplier,
+                                               reactor.core.publisher.FluxSink<String> sink) {
+        Throwable lastError = null;
+        int attempts = MULTI_FILE_STAGE_MAX_RETRIES + 1;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            if (attempt > 1) {
+                sink.next("\n\n[Stage " + stageName + " Retry " + attempt + "/" + attempts + "]\n");
+            }
+            log.info("Multi-file stage stream invoke, stage={}, appId={}, attempt={}/{}", stageName, appId, attempt, attempts);
+
+            StringBuilder stageOutputBuilder = new StringBuilder();
+            CountDownLatch stageLatch = new CountDownLatch(1);
+            AtomicReference<Throwable> stageError = new AtomicReference<>();
+
+            try {
+                streamSupplier.get().subscribe(
+                        chunk -> {
+                            if (chunk != null) {
+                                stageOutputBuilder.append(chunk);
+                                sink.next(chunk);
+                            }
+                        },
+                        error -> {
+                            stageError.set(error);
+                            stageLatch.countDown();
+                        },
+                        stageLatch::countDown
+                );
+            } catch (RuntimeException subscribeError) {
+                stageError.set(subscribeError);
+                stageLatch.countDown();
+            }
+
+            boolean stageCompleted;
+            try {
+                stageCompleted = stageLatch.await(240, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                        "Stage stream interrupted, stage=" + stageName + ", appId=" + appId);
+            }
+
+            if (!stageCompleted) {
+                stageError.set(new BusinessException(ErrorCode.SYSTEM_ERROR,
+                        "Stage stream timeout, stage=" + stageName + ", appId=" + appId));
+            }
+
+            if (stageError.get() == null) {
+                return stageOutputBuilder.toString();
+            }
+
+            lastError = stageError.get();
+            log.warn("Multi-file stage stream failed, stage={}, appId={}, attempt={}/{}, error={}",
+                    stageName, appId, attempt, attempts, lastError.getMessage());
+
+            if (attempt < attempts) {
+                long backoffMillis = 300L * attempt;
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(backoffMillis));
+                if (Thread.currentThread().isInterrupted()) {
+                    Thread.currentThread().interrupt();
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                            "Stage retry interrupted, stage=" + stageName + ", appId=" + appId);
+                }
+            }
+        }
+
+        throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                "Stage failed after retries, stage=" + stageName + ", appId=" + appId + ", error="
+                        + (lastError == null ? "unknown" : lastError.getMessage()));
     }
 
     private <T> T invokeStageWithRetry(String stageName, Long appId, Supplier<T> supplier) {
