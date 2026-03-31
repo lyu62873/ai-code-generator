@@ -16,6 +16,9 @@ public class MultiFileCodeParser implements CodeParser<MultiFileCodeResult> {
     private static final Pattern CSS_CODE_PATTERN = Pattern.compile("```css[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
 /** Compile. */
     private static final Pattern JS_CODE_PATTERN = Pattern.compile("```(?:js|javascript)[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern LEADING_JS_COMMENT_PATTERN = Pattern.compile(
+            "^(?:\\s*(?:/\\*[\\s\\S]*?\\*/\\s*|//[^\\n\\r]*(?:\\r?\\n|\\r)\\s*))+"
+    );
 
 
     /**
@@ -38,7 +41,7 @@ public class MultiFileCodeParser implements CodeParser<MultiFileCodeResult> {
             multiFileCodeResult.setCssCode(cssCode);
         }
         if (jsCode != null && !jsCode.trim().isEmpty()) {
-            multiFileCodeResult.setJsCode(jsCode);
+            multiFileCodeResult.setJsCode(stripLeadingJsComments(jsCode.trim()));
         }
 
         return multiFileCodeResult;
@@ -53,6 +56,11 @@ public class MultiFileCodeParser implements CodeParser<MultiFileCodeResult> {
             return matcher.group(1);
         }
         return null;
+    }
+
+    private String stripLeadingJsComments(String jsCode) {
+        String sanitized = LEADING_JS_COMMENT_PATTERN.matcher(jsCode).replaceFirst("");
+        return sanitized.stripLeading();
     }
 }
 

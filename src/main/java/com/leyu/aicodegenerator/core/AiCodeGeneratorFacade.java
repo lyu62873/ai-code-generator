@@ -45,9 +45,15 @@ public class AiCodeGeneratorFacade {
     private static final int BUILD_ERROR_MAX_CHARS = 6000;
     private static final int PRECHECK_FIX_MAX_ROUNDS = 2;
     private static final int MULTI_FILE_STAGE_MAX_RETRIES = 2;
+    private static final int STAGE_STREAM_EMIT_INTERVAL_MS = 240;
+    private static final int STAGE_STREAM_EMIT_MAX_BUFFER_CHARS = 900;
     private static final Pattern HTML_BLOCK_PATTERN = Pattern.compile("```html[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern CSS_BLOCK_PATTERN = Pattern.compile("```css[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
     private static final Pattern JS_BLOCK_PATTERN = Pattern.compile("```(?:js|javascript)[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern GENERIC_BLOCK_PATTERN = Pattern.compile("```[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern LEADING_JS_COMMENT_PATTERN = Pattern.compile(
+            "^(?:\\s*(?:/\\*[\\s\\S]*?\\*/\\s*|//[^\\n\\r]*(?:\\r?\\n|\\r)\\s*))+"
+    );
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
@@ -211,9 +217,11 @@ public class AiCodeGeneratorFacade {
                         "HTML",
                         appId,
                         () -> aiCodeGeneratorService.generateMultiFileHtmlStageStream(userMessage),
-                        sink
+                        sink,
+                        true
                 );
                 String htmlCode = extractCodeFromBlock(htmlRaw, HTML_BLOCK_PATTERN, "html");
+                sink.next("\n\n[Stage 1/3] HTML complete.\n");
 
                 sink.next("\n\n[Stage 2/3] Generating CSS styles...\n");
                 String cssInput = """
@@ -229,9 +237,11 @@ public class AiCodeGeneratorFacade {
                         "CSS",
                         appId,
                         () -> aiCodeGeneratorService.generateMultiFileCssStageStream(cssInput),
-                        sink
+                        sink,
+                        true
                 );
                 String cssCode = extractCodeFromBlock(cssRaw, CSS_BLOCK_PATTERN, "css");
+                sink.next("\n\n[Stage 2/3] CSS complete.\n");
 
                 sink.next("\n\n[Stage 3/3] Generating JavaScript interactions...\n");
                 String jsInput = """
@@ -252,9 +262,11 @@ public class AiCodeGeneratorFacade {
                         "JS",
                         appId,
                         () -> aiCodeGeneratorService.generateMultiFileJsStageStream(jsInput),
-                        sink
+                        sink,
+                        true
                 );
                 String jsCode = extractCodeFromBlock(jsRaw, JS_BLOCK_PATTERN, "javascript");
+                sink.next("\n\n[Stage 3/3] JavaScript complete.\n");
 
                 MultiFileCodeResult result = new MultiFileCodeResult();
                 result.setHtmlCode(htmlCode);
@@ -262,6 +274,7 @@ public class AiCodeGeneratorFacade {
                 result.setJsCode(jsCode);
                 File savedDir = CodeFileSaverExecutor.executeSaver(result, CodeGenTypeEnum.MULTI_FILE, appId);
                 log.info("Save Success，path：{}", savedDir.getAbsolutePath());
+                sink.next("\n\n[Stage Summary] Multi-file generation complete and saved.\n");
                 sink.complete();
             } catch (Exception e) {
                 log.error("Generate multi-file by stages failed, appId={}, error={}", appId, e.getMessage(), e);
@@ -303,7 +316,8 @@ public class AiCodeGeneratorFacade {
     private String collectStageStreamWithRetry(String stageName,
                                                Long appId,
                                                Supplier<Flux<String>> streamSupplier,
-                                               reactor.core.publisher.FluxSink<String> sink) {
+                                               reactor.core.publisher.FluxSink<String> sink,
+                                               boolean streamChunksToClient) {
         Throwable lastError = null;
         int attempts = MULTI_FILE_STAGE_MAX_RETRIES + 1;
         for (int attempt = 1; attempt <= attempts; attempt++) {
@@ -313,15 +327,27 @@ public class AiCodeGeneratorFacade {
             log.info("Multi-file stage stream invoke, stage={}, appId={}, attempt={}/{}", stageName, appId, attempt, attempts);
 
             StringBuilder stageOutputBuilder = new StringBuilder();
+            StringBuilder streamPushBuffer = new StringBuilder();
             CountDownLatch stageLatch = new CountDownLatch(1);
             AtomicReference<Throwable> stageError = new AtomicReference<>();
+            AtomicReference<Long> lastEmitAt = new AtomicReference<>(System.currentTimeMillis());
 
             try {
                 streamSupplier.get().subscribe(
                         chunk -> {
                             if (chunk != null) {
                                 stageOutputBuilder.append(chunk);
-                                sink.next(chunk);
+                                if (streamChunksToClient) {
+                                    streamPushBuffer.append(chunk);
+                                    long now = System.currentTimeMillis();
+                                    boolean reachedInterval = now - lastEmitAt.get() >= STAGE_STREAM_EMIT_INTERVAL_MS;
+                                    boolean reachedSizeLimit = streamPushBuffer.length() >= STAGE_STREAM_EMIT_MAX_BUFFER_CHARS;
+                                    if (reachedInterval || reachedSizeLimit) {
+                                        sink.next(streamPushBuffer.toString());
+                                        streamPushBuffer.setLength(0);
+                                        lastEmitAt.set(now);
+                                    }
+                                }
                             }
                         },
                         error -> {
@@ -350,6 +376,9 @@ public class AiCodeGeneratorFacade {
             }
 
             if (stageError.get() == null) {
+                if (streamChunksToClient && streamPushBuffer.length() > 0) {
+                    sink.next(streamPushBuffer.toString());
+                }
                 return stageOutputBuilder.toString();
             }
 
@@ -410,13 +439,39 @@ public class AiCodeGeneratorFacade {
             if (StrUtil.isBlank(content)) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Generated " + language + " code block is empty");
             }
-            return content.trim();
+            String normalizedContent = content.trim();
+            if ("javascript".equalsIgnoreCase(language) || "js".equalsIgnoreCase(language)) {
+                normalizedContent = stripLeadingJsComments(normalizedContent);
+            }
+            return normalizedContent;
+        }
+        // Some model responses occasionally omit/alter the language marker.
+        // Fall back to the first fenced code block to avoid saving markdown fences as source code.
+        Matcher genericMatcher = GENERIC_BLOCK_PATTERN.matcher(raw);
+        if (genericMatcher.find()) {
+            String genericContent = genericMatcher.group(1);
+            if (StrUtil.isBlank(genericContent)) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Generated " + language + " code block is empty");
+            }
+            log.warn("Generated {} code block language marker mismatch, using generic fenced block fallback", language);
+            return genericContent.trim();
         }
         String trimmed = raw.trim();
         if (StrUtil.isBlank(trimmed)) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Generated " + language + " content is empty");
         }
+        if ("javascript".equalsIgnoreCase(language) || "js".equalsIgnoreCase(language)) {
+            return stripLeadingJsComments(trimmed);
+        }
         return trimmed;
+    }
+
+    private String stripLeadingJsComments(String jsCode) {
+        if (StrUtil.isBlank(jsCode)) {
+            return jsCode;
+        }
+        String sanitized = LEADING_JS_COMMENT_PATTERN.matcher(jsCode).replaceFirst("");
+        return sanitized.stripLeading();
     }
 
     public boolean repairVueProjectByBuildError(Long appId, String buildError, int round, int maxRounds) {
