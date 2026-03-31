@@ -12,8 +12,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.TimeUnit;
@@ -81,8 +83,16 @@ public class VueProjectBuilder {
             return true;
         }
 
-        String[] args = (lockFile.exists() && lockFile.isFile()) ? NPM_CI_ARGS : NPM_INSTALL_FALLBACK_ARGS;
-        boolean success = executeNpmCommandWithFallback(projectDir, args, 300, null);
+        boolean success;
+        if (lockFile.exists() && lockFile.isFile()) {
+            success = executeNpmCommandWithFallback(projectDir, NPM_CI_ARGS, 300, null);
+            if (!success) {
+                log.warn("npm ci failed, fallback to npm install, project={}", projectDir.getAbsolutePath());
+                success = executeNpmCommandWithFallback(projectDir, NPM_INSTALL_FALLBACK_ARGS, 300, null);
+            }
+        } else {
+            success = executeNpmCommandWithFallback(projectDir, NPM_INSTALL_FALLBACK_ARGS, 300, null);
+        }
         if (success && lockFile.exists() && lockFile.isFile()) {
             saveLockHash(projectDir, lockFile);
         }
@@ -91,8 +101,9 @@ public class VueProjectBuilder {
 
 /** Execute Npm Build. */
     private boolean executeNpmBuild(File projectDir) {
+        String[] mergedEnv = mergeWithSystemEnv(new String[]{"NODE_OPTIONS=" + NODE_OPTIONS});
         return executeNpmCommandWithFallback(projectDir, new String[]{"run", "build"}, 180,
-                new String[]{"NODE_OPTIONS=" + NODE_OPTIONS});
+                mergedEnv);
     }
 
 
@@ -182,6 +193,37 @@ public class VueProjectBuilder {
         command[0] = executable;
         System.arraycopy(args, 0, command, 1, args.length);
         return command;
+    }
+
+    private String[] mergeWithSystemEnv(String[] extraEnvp) {
+        if (extraEnvp == null || extraEnvp.length == 0) {
+            return null;
+        }
+        Map<String, String> env = new LinkedHashMap<>(System.getenv());
+        for (String entry : extraEnvp) {
+            if (StrUtil.isBlank(entry)) {
+                continue;
+            }
+            int splitIndex = entry.indexOf('=');
+            if (splitIndex <= 0 || splitIndex == entry.length() - 1) {
+                continue;
+            }
+            String key = entry.substring(0, splitIndex);
+            String value = entry.substring(splitIndex + 1);
+
+            if ("NODE_OPTIONS".equals(key) && StrUtil.isNotBlank(env.get(key))) {
+                String existingValue = env.get(key);
+                if (!existingValue.contains(value)) {
+                    value = existingValue + " " + value;
+                } else {
+                    value = existingValue;
+                }
+            }
+            env.put(key, value);
+        }
+        return env.entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .toArray(String[]::new);
     }
 
     private boolean shouldSkipInstall(File projectDir, File lockFile) {
