@@ -1,7 +1,12 @@
 package com.leyu.aicodegenerator.core;
 
-import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONUtil;
+import java.io.File;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.springframework.stereotype.Service;
+
 import com.leyu.aicodegenerator.ai.AiCodeGeneratorService;
 import com.leyu.aicodegenerator.ai.AiCodeGeneratorServiceFactory;
 import com.leyu.aicodegenerator.ai.model.HtmlCodeResult;
@@ -14,13 +19,13 @@ import com.leyu.aicodegenerator.core.saver.CodeFileSaverExecutor;
 import com.leyu.aicodegenerator.exception.BusinessException;
 import com.leyu.aicodegenerator.exception.ErrorCode;
 import com.leyu.aicodegenerator.model.enums.CodeGenTypeEnum;
+
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import dev.langchain4j.service.TokenStream;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
-
-import java.io.File;
 
 /**
  *
@@ -28,6 +33,9 @@ import java.io.File;
 @Service
 @Slf4j
 public class AiCodeGeneratorFacade {
+
+    private static final int REPAIR_TIMEOUT_SECONDS = 180;
+    private static final int BUILD_ERROR_MAX_CHARS = 6000;
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
@@ -149,6 +157,58 @@ public class AiCodeGeneratorFacade {
                     })
                     .start();
         });
+    }
+
+    public boolean repairVueProjectByBuildError(Long appId, String buildError, int round, int maxRounds) {
+        if (appId == null || appId <= 0 || StrUtil.isBlank(buildError)) {
+            return false;
+        }
+
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId, CodeGenTypeEnum.VUE_PROJECT);
+        String sanitizedBuildError = buildError.length() > BUILD_ERROR_MAX_CHARS
+                ? buildError.substring(0, BUILD_ERROR_MAX_CHARS) + "...(truncated)"
+                : buildError;
+        String repairPrompt = """
+                You are now in build-fix mode.
+                Current round: %d/%d.
+                
+                The latest `npm run build` failed with this output:
+                ---
+                %s
+                ---
+                
+                Requirements:
+                1) Use file tools to locate and fix ONLY build-breaking issues.
+                2) Prioritize syntax errors, invalid CSS selectors, broken imports/exports, malformed Vue SFC sections.
+                3) Keep existing feature scope; do not add new pages/features.
+                4) Apply minimal edits and stop once fixed.
+                """.formatted(round, maxRounds, sanitizedBuildError);
+
+        CountDownLatch completionLatch = new CountDownLatch(1);
+        AtomicBoolean hasError = new AtomicBoolean(false);
+
+        TokenStream repairStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, repairPrompt);
+        repairStream
+                .onCompleteResponse(response -> completionLatch.countDown())
+                .onError(e -> {
+                    hasError.set(true);
+                    log.error("Vue build-fix round failed, appId={}, round={}, error={}", appId, round, e.getMessage());
+                    completionLatch.countDown();
+                })
+                .start();
+
+        try {
+            boolean completed = completionLatch.await(REPAIR_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!completed) {
+                log.warn("Vue build-fix round timeout, appId={}, round={}", appId, round);
+                return false;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Vue build-fix round interrupted, appId={}, round={}", appId, round);
+            return false;
+        }
+        return !hasError.get();
     }
 
 }

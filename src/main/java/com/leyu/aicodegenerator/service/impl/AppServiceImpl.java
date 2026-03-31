@@ -71,6 +71,8 @@ import redis.clients.jedis.exceptions.JedisConnectionException;
 @Slf4j
 public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppService {
 
+    private static final int VUE_BUILD_FIX_MAX_ROUNDS = 2;
+
     private final UserService userService;
     private final AiCodeGeneratorFacade aiCodeGeneratorFacade;
     private final ChatHistoryService chatHistoryService;
@@ -354,7 +356,26 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
         if (codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
             boolean buildSuccess = vueProjectBuilder.buildProject(sourceDirPath);
-            ThrowUtils.throwIf(!buildSuccess, ErrorCode.SYSTEM_ERROR, "Build Vue project failed. Please check code and dependencies");
+            String buildFailureDetail = vueProjectBuilder.getLastBuildFailureDetail();
+            for (int round = 1; !buildSuccess && round <= VUE_BUILD_FIX_MAX_ROUNDS; round++) {
+                if (StrUtil.isBlank(buildFailureDetail)) {
+                    break;
+                }
+                log.warn("Vue build failed, triggering auto-fix round {}/{}, appId={}", round, VUE_BUILD_FIX_MAX_ROUNDS, appId);
+                boolean repairTriggered = aiCodeGeneratorFacade.repairVueProjectByBuildError(
+                        appId,
+                        buildFailureDetail,
+                        round,
+                        VUE_BUILD_FIX_MAX_ROUNDS
+                );
+                if (!repairTriggered) {
+                    break;
+                }
+                buildSuccess = vueProjectBuilder.buildProject(sourceDirPath);
+                buildFailureDetail = vueProjectBuilder.getLastBuildFailureDetail();
+            }
+            ThrowUtils.throwIf(!buildSuccess, ErrorCode.SYSTEM_ERROR,
+                    "Build Vue project failed after auto-fix attempts. Please check generated code and dependencies.");
 
             File distDir = new File(sourceDirPath, "dist");
             ThrowUtils.throwIf(!distDir.exists(), ErrorCode.SYSTEM_ERROR, "Vue project construction complete but dist directory does not exist");

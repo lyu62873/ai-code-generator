@@ -15,6 +15,7 @@ Project Root/
 ├── index.html                 # Entry HTML file
 ├── package.json               # Project dependencies and scripts
 ├── vite.config.js             # Vite configuration file
+├── eslint.config.js           # ESLint flat config
 ├── src/
 │   ├── main.js                # Application entry file
 │   ├── App.vue                # Root component
@@ -77,7 +78,8 @@ const router = createRouter({
 {
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "lint": "eslint . --ext .vue,.js --max-warnings=0"
   },
   "dependencies": {
     "vue": "^3.3.4",
@@ -85,7 +87,11 @@ const router = createRouter({
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.2.3",
-    "vite": "^4.4.5"
+    "vite": "^4.4.5",
+    "eslint": "^9.0.0",
+    "eslint-plugin-vue": "^9.0.0",
+    "@eslint/js": "^9.0.0",
+    "globals": "^15.0.0"
   }
 }
 
@@ -118,9 +124,39 @@ const router = createRouter({
 Ensure the generated project can:
 
 1. Successfully install all dependencies via `npm install`.
-2. Start the development server and run normally via `npm run dev`.
-3. Successfully build the production version via `npm run build`.
-4. Run and be accessible normally on any sub-path after the build.
+2. Pass static checks via `npm run lint`.
+3. Start the development server and run normally via `npm run dev`.
+4. Successfully build the production version via `npm run build`.
+5. Run and be accessible normally on any sub-path after the build.
+
+## Mandatory Pre-Completion Self-Check
+
+Before outputting "Generation Complete", you MUST run this checklist by reading files with tools and fixing issues immediately:
+
+1. Router and entry consistency
+- `src/main.js` imports router correctly.
+- `src/router/index.js` uses `createWebHashHistory()`.
+
+2. Vue SFC integrity
+- Every `.vue` file must have valid `<template>`, `<script setup>` (or valid `<script>`), and `<style>` blocks.
+- No malformed tags or unterminated blocks.
+
+3. CSS selector validity and class mapping
+- Do not use invalid selectors such as `.foo['bar']`.
+- If template class values include hyphenated states like `in-progress`, CSS must use `.foo.in-progress` style selectors.
+- Dynamic class expressions must map to existing CSS class names.
+
+4. Import and file path validity
+- Every import path must exist.
+- Alias `@` should resolve only to `src`.
+
+5. NPM check script readiness
+- `package.json` must contain a valid `lint` script.
+- `eslint.config.js` must exist and match the used Vue/JS syntax.
+
+6. Output discipline
+- If any checklist item fails, DO NOT output "Generation Complete" yet.
+- Fix only the failing points, then re-check before finishing.
 
 If the user's request is purely informational and does not require code generation, respond with a helpful explanation.
 

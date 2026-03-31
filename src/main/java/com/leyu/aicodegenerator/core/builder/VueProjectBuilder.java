@@ -1,12 +1,7 @@
 package com.leyu.aicodegenerator.core.builder;
 
-import cn.hutool.core.util.StrUtil;
-import cn.hutool.core.util.RuntimeUtil;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-
 import java.io.File;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,21 +12,33 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import cn.hutool.core.util.RuntimeUtil;
+import cn.hutool.core.util.StrUtil;
+import lombok.extern.slf4j.Slf4j;
 
 /** Build Project Async. */
 @Slf4j
 @Component
 public class VueProjectBuilder {
 
+    private static final int COMMAND_OUTPUT_LIMIT = 8000;
     private static final String NODE_OPTIONS = "--max-old-space-size=384";
+    private static final String[] NPM_LINT_ARGS = {"run", "lint"};
+    private static final String[] NPM_TYPECHECK_ARGS = {"run", "typecheck"};
     private static final String[] NPM_INSTALL_FALLBACK_ARGS = {"install", "--no-audit", "--no-fund", "--prefer-offline"};
     private static final String[] NPM_CI_ARGS = {"ci", "--no-audit", "--no-fund", "--prefer-offline"};
     private static final ReentrantLock BUILD_LOCK = new ReentrantLock();
 
     @Value("${app.builder.npm-path:}")
     private String npmPath;
+
+    private volatile String lastBuildFailureDetail;
 
     public void buildProjectAsync(String projectPath) {
         Thread.ofVirtual().name("vue-builder-" + System.currentTimeMillis()).start(() -> {
@@ -44,34 +51,38 @@ public class VueProjectBuilder {
     }
 
 /** Execute Command. */
-    private boolean executeCommand(File workingDir, String[] envp, String[] command, int timeoutSeconds) {
+    private CommandExecutionResult executeCommand(File workingDir, String[] envp, String[] command, int timeoutSeconds) {
+        Process process = null;
         try {
             log.info("Executing command: {} on working directory: {}", String.join(" ", command), workingDir.getAbsolutePath());
-            Process process = RuntimeUtil.exec(
-                    envp, workingDir, command
-            );
+            process = RuntimeUtil.exec(envp, workingDir, command);
 
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
                 log.error("Command execution timed out ({} seconds).", timeoutSeconds);
                 process.destroyForcibly();
-                return false;
+                String timeoutOutput = readProcessOutput(process);
+                return new CommandExecutionResult(false, -1, timeoutOutput, String.join(" ", command));
             }
             int exitCode = process.exitValue();
+            String output = readProcessOutput(process);
             if (exitCode == 0) {
                 log.info("Command executed successfully: {}", String.join(" ", command));
-                return true;
+                return new CommandExecutionResult(true, exitCode, output, String.join(" ", command));
             }  else {
-                log.error("Command execution fail: {}, error message: {}", String.join(" ", command), exitCode);
-                return false;
+                log.error("Command execution fail: {}, error code: {}, output: {}",
+                        String.join(" ", command), exitCode, trimForLog(output));
+                return new CommandExecutionResult(false, exitCode, output, String.join(" ", command));
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Command execution interrupted: {}, error message: {}", String.join(" ", command), e.getMessage());
-            return false;
+            String output = readProcessOutput(process);
+            return new CommandExecutionResult(false, -1, output, String.join(" ", command));
         } catch (RuntimeException e) {
             log.error("Command execution fail: {}, error message: {}", String.join(" ", command), e.getMessage());
-            return false;
+            String output = readProcessOutput(process);
+            return new CommandExecutionResult(false, -1, output, String.join(" ", command));
         }
     }
 
@@ -85,13 +96,13 @@ public class VueProjectBuilder {
 
         boolean success;
         if (lockFile.exists() && lockFile.isFile()) {
-            success = executeNpmCommandWithFallback(projectDir, NPM_CI_ARGS, 300, null);
+            success = executeNpmCommandWithFallback(projectDir, NPM_CI_ARGS, 300, null).success();
             if (!success) {
                 log.warn("npm ci failed, fallback to npm install, project={}", projectDir.getAbsolutePath());
-                success = executeNpmCommandWithFallback(projectDir, NPM_INSTALL_FALLBACK_ARGS, 300, null);
+                success = executeNpmCommandWithFallback(projectDir, NPM_INSTALL_FALLBACK_ARGS, 300, null).success();
             }
         } else {
-            success = executeNpmCommandWithFallback(projectDir, NPM_INSTALL_FALLBACK_ARGS, 300, null);
+            success = executeNpmCommandWithFallback(projectDir, NPM_INSTALL_FALLBACK_ARGS, 300, null).success();
         }
         if (success && lockFile.exists() && lockFile.isFile()) {
             saveLockHash(projectDir, lockFile);
@@ -100,7 +111,7 @@ public class VueProjectBuilder {
     }
 
 /** Execute Npm Build. */
-    private boolean executeNpmBuild(File projectDir) {
+    private CommandExecutionResult executeNpmBuild(File projectDir) {
         String[] mergedEnv = mergeWithSystemEnv(new String[]{"NODE_OPTIONS=" + NODE_OPTIONS});
         return executeNpmCommandWithFallback(projectDir, new String[]{"run", "build"}, 180,
                 mergedEnv);
@@ -132,8 +143,9 @@ public class VueProjectBuilder {
         return new ArrayList<>(candidates);
     }
 
-    private boolean executeNpmCommandWithFallback(File projectDir, String[] npmArgs, int timeoutSeconds, String[] envp) {
+    private CommandExecutionResult executeNpmCommandWithFallback(File projectDir, String[] npmArgs, int timeoutSeconds, String[] envp) {
         List<String> candidates = resolveNpmExecutables();
+        CommandExecutionResult lastFailure = null;
         for (String candidate : candidates) {
             File candidateFile = new File(candidate);
             boolean pathLike = candidate.contains(File.separator) || candidateFile.isAbsolute();
@@ -145,13 +157,17 @@ public class VueProjectBuilder {
             List<String[]> commandPlans = buildNpmCommandPlans(candidate, npmArgs);
             for (String[] command : commandPlans) {
                 log.info("Trying npm command with executable candidate: {}", String.join(" ", command));
-                boolean success = executeCommand(projectDir, envp, command, timeoutSeconds);
-                if (success) {
-                    return true;
+                CommandExecutionResult result = executeCommand(projectDir, envp, command, timeoutSeconds);
+                if (result.success()) {
+                    return result;
                 }
+                lastFailure = result;
             }
         }
-        return false;
+        if (lastFailure != null) {
+            return lastFailure;
+        }
+        return new CommandExecutionResult(false, -1, "", "N/A");
     }
 
     private List<String[]> buildNpmCommandPlans(String npmExecutable, String[] npmArgs) {
@@ -226,6 +242,74 @@ public class VueProjectBuilder {
                 .toArray(String[]::new);
     }
 
+    private String readProcessOutput(Process process) {
+        if (process == null) {
+            return "";
+        }
+        String stdout = readInputStream(process.getInputStream());
+        String stderr = readInputStream(process.getErrorStream());
+        String merged = StrUtil.blankToDefault(stdout, "") + (StrUtil.isNotBlank(stderr) ? "\n" + stderr : "");
+        return trimForLog(merged);
+    }
+
+    private String readInputStream(InputStream inputStream) {
+        if (inputStream == null) {
+            return "";
+        }
+        try {
+            byte[] allBytes = inputStream.readAllBytes();
+            return new String(allBytes, StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private String trimForLog(String text) {
+        if (StrUtil.isBlank(text)) {
+            return "";
+        }
+        String normalized = text.trim();
+        if (normalized.length() <= COMMAND_OUTPUT_LIMIT) {
+            return normalized;
+        }
+        return normalized.substring(0, COMMAND_OUTPUT_LIMIT) + "...(truncated)";
+    }
+
+    private CommandExecutionResult executeOptionalChecks(File projectDir) {
+        if (hasNpmScript(projectDir, "lint")) {
+            CommandExecutionResult lintResult = executeNpmCommandWithFallback(projectDir, NPM_LINT_ARGS, 120, null);
+            if (!lintResult.success()) {
+                return lintResult;
+            }
+        } else {
+            log.info("Skip lint check, script not found in package.json, project={}", projectDir.getAbsolutePath());
+        }
+
+        if (hasNpmScript(projectDir, "typecheck")) {
+            CommandExecutionResult typecheckResult = executeNpmCommandWithFallback(projectDir, NPM_TYPECHECK_ARGS, 120, null);
+            if (!typecheckResult.success()) {
+                return typecheckResult;
+            }
+        } else {
+            log.info("Skip typecheck, script not found in package.json, project={}", projectDir.getAbsolutePath());
+        }
+        return new CommandExecutionResult(true, 0, "", "pre-build-check");
+    }
+
+    private boolean hasNpmScript(File projectDir, String scriptName) {
+        try {
+            File packageJson = new File(projectDir, "package.json");
+            if (!packageJson.exists() || !packageJson.isFile()) {
+                return false;
+            }
+            String content = Files.readString(packageJson.toPath(), StandardCharsets.UTF_8);
+            return content.contains("\"" + scriptName + "\"");
+        } catch (Exception e) {
+            log.warn("Failed reading package.json for script check, script={}, error={}", scriptName, e.getMessage());
+            return false;
+        }
+    }
+
     private boolean shouldSkipInstall(File projectDir, File lockFile) {
         try {
             File nodeModules = new File(projectDir, "node_modules");
@@ -280,6 +364,7 @@ public class VueProjectBuilder {
     public boolean buildProject(String projectPath) {
         BUILD_LOCK.lock();
         try {
+            lastBuildFailureDetail = null;
             File projectDir = new File(projectPath);
             if (!projectDir.exists() || !projectDir.isDirectory()) {
                 log.error("Project directory doesn't exist or is not a directory: {}", projectPath);
@@ -296,7 +381,19 @@ public class VueProjectBuilder {
                 log.error("npm install Failed");
                 return false;
             }
-            if (!executeNpmBuild(projectDir)) {
+
+            CommandExecutionResult checkResult = executeOptionalChecks(projectDir);
+            if (!checkResult.success()) {
+                lastBuildFailureDetail = String.format("command=%s, exitCode=%d, output=%s",
+                        checkResult.command(), checkResult.exitCode(), checkResult.output());
+                log.error("Pre-build checks failed");
+                return false;
+            }
+
+            CommandExecutionResult buildResult = executeNpmBuild(projectDir);
+            if (!buildResult.success()) {
+                lastBuildFailureDetail = String.format("command=%s, exitCode=%d, output=%s",
+                        buildResult.command(), buildResult.exitCode(), buildResult.output());
                 log.error("npm build Failed");
                 return false;
             }
@@ -312,4 +409,10 @@ public class VueProjectBuilder {
             BUILD_LOCK.unlock();
         }
     }
+
+    public String getLastBuildFailureDetail() {
+        return lastBuildFailureDetail;
+    }
+
+    private record CommandExecutionResult(boolean success, int exitCode, String output, String command) {}
 }
