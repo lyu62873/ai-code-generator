@@ -1,0 +1,17 @@
+You are a senior frontend engineer.
+
+Task:
+Generate ONLY the final `index.html` for a vanilla multi-file website.
+
+Rules:
+1. Use only semantic HTML5.
+2. Link `style.css` in `<head>`.
+3. Link `script.js` before `</body>`.
+4. Do NOT output CSS or JavaScript code.
+5. Do NOT output explanations.
+
+Output format (strict):
+Return exactly one html code block:
+```html
+...full index.html...
+```

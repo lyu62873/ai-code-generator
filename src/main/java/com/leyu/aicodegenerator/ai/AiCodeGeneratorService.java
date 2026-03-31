@@ -50,6 +50,15 @@ public interface AiCodeGeneratorService {
     @SystemMessage(fromResource = "prompt/codegen-multi-file-system-prompt.txt")
     Flux<String> generateMultiFileCodeStream(String userMessage);
 
+    @SystemMessage(fromResource = "prompt/codegen-multi-file-html-stage-system-prompt.txt")
+    String generateMultiFileHtmlStage(String userMessage);
+
+    @SystemMessage(fromResource = "prompt/codegen-multi-file-css-stage-system-prompt.txt")
+    String generateMultiFileCssStage(String userMessage);
+
+    @SystemMessage(fromResource = "prompt/codegen-multi-file-js-stage-system-prompt.txt")
+    String generateMultiFileJsStage(String userMessage);
+
     @SystemMessage(fromResource = "prompt/codegen-vue-system-prompt.txt")
     TokenStream generateVueProjectCodeStream(@MemoryId long appId, @UserMessage String userMessage);
 

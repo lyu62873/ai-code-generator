@@ -1,6 +1,8 @@
 package com.leyu.aicodegenerator.core;
 
 import java.io.File;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -39,6 +41,9 @@ public class AiCodeGeneratorFacade {
     private static final int REPAIR_TIMEOUT_SECONDS = 180;
     private static final int BUILD_ERROR_MAX_CHARS = 6000;
     private static final int PRECHECK_FIX_MAX_ROUNDS = 2;
+    private static final Pattern HTML_BLOCK_PATTERN = Pattern.compile("```html[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CSS_BLOCK_PATTERN = Pattern.compile("```css[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern JS_BLOCK_PATTERN = Pattern.compile("```(?:js|javascript)[^\\n]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
@@ -94,8 +99,7 @@ public class AiCodeGeneratorFacade {
                 yield processCodeStream(result, CodeGenTypeEnum.HTML, appId);
             }
             case MULTI_FILE -> {
-                Flux<String> result = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
-                yield processCodeStream(result, CodeGenTypeEnum.MULTI_FILE, appId);
+                yield generateMultiFileCodeByStagesStream(aiCodeGeneratorService, userMessage, appId);
             }
             case VUE_PROJECT -> {
                 TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
@@ -191,6 +195,94 @@ public class AiCodeGeneratorFacade {
             checkFailureDetail = vueProjectBuilder.getLastBuildFailureDetail();
         }
         return checkSuccess;
+    }
+
+    private Flux<String> generateMultiFileCodeByStagesStream(AiCodeGeneratorService aiCodeGeneratorService,
+                                                             String userMessage,
+                                                             Long appId) {
+        return Flux.create(sink -> {
+            try {
+                sink.next("\n\n[Stage 1/3] Generating HTML structure...\n");
+                String htmlRaw = aiCodeGeneratorService.generateMultiFileHtmlStage(userMessage);
+                String htmlCode = extractCodeFromBlock(htmlRaw, HTML_BLOCK_PATTERN, "html");
+
+                sink.next("\n\n[Stage 2/3] Generating CSS styles...\n");
+                String cssInput = """
+                        User requirement:
+                        %s
+
+                        Final HTML (read-only context):
+                        ```html
+                        %s
+                        ```
+                        """.formatted(userMessage, htmlCode);
+                String cssRaw = aiCodeGeneratorService.generateMultiFileCssStage(cssInput);
+                String cssCode = extractCodeFromBlock(cssRaw, CSS_BLOCK_PATTERN, "css");
+
+                sink.next("\n\n[Stage 3/3] Generating JavaScript interactions...\n");
+                String jsInput = """
+                        User requirement:
+                        %s
+
+                        Final HTML (read-only context):
+                        ```html
+                        %s
+                        ```
+
+                        Final CSS (read-only context):
+                        ```css
+                        %s
+                        ```
+                        """.formatted(userMessage, htmlCode, cssCode);
+                String jsRaw = aiCodeGeneratorService.generateMultiFileJsStage(jsInput);
+                String jsCode = extractCodeFromBlock(jsRaw, JS_BLOCK_PATTERN, "javascript");
+
+                MultiFileCodeResult result = new MultiFileCodeResult();
+                result.setHtmlCode(htmlCode);
+                result.setCssCode(cssCode);
+                result.setJsCode(jsCode);
+                File savedDir = CodeFileSaverExecutor.executeSaver(result, CodeGenTypeEnum.MULTI_FILE, appId);
+                log.info("Save Success，path：{}", savedDir.getAbsolutePath());
+
+                String combinedOutput = """
+                        ```html
+                        %s
+                        ```
+
+                        ```css
+                        %s
+                        ```
+
+                        ```javascript
+                        %s
+                        ```
+                        """.formatted(htmlCode, cssCode, jsCode);
+                sink.next(combinedOutput);
+                sink.complete();
+            } catch (Exception e) {
+                log.error("Generate multi-file by stages failed, appId={}, error={}", appId, e.getMessage(), e);
+                sink.error(e);
+            }
+        });
+    }
+
+    private String extractCodeFromBlock(String raw, Pattern pattern, String language) {
+        if (StrUtil.isBlank(raw)) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Generated " + language + " content is empty");
+        }
+        Matcher matcher = pattern.matcher(raw);
+        if (matcher.find()) {
+            String content = matcher.group(1);
+            if (StrUtil.isBlank(content)) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Generated " + language + " code block is empty");
+            }
+            return content.trim();
+        }
+        String trimmed = raw.trim();
+        if (StrUtil.isBlank(trimmed)) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Generated " + language + " content is empty");
+        }
+        return trimmed;
     }
 
     public boolean repairVueProjectByBuildError(Long appId, String buildError, int round, int maxRounds) {
