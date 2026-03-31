@@ -215,6 +215,7 @@ public class AiCodeGeneratorFacade {
                 sink.next("\n\n[Stage 1/3] Generating HTML structure...\n");
                 String htmlRaw = collectStageStreamWithRetry(
                         "HTML",
+                        "html",
                         appId,
                         () -> aiCodeGeneratorService.generateMultiFileHtmlStageStream(userMessage),
                         sink,
@@ -235,6 +236,7 @@ public class AiCodeGeneratorFacade {
                         """.formatted(userMessage, htmlCode);
                 String cssRaw = collectStageStreamWithRetry(
                         "CSS",
+                        "css",
                         appId,
                         () -> aiCodeGeneratorService.generateMultiFileCssStageStream(cssInput),
                         sink,
@@ -260,6 +262,7 @@ public class AiCodeGeneratorFacade {
                         """.formatted(userMessage, htmlCode, cssCode);
                 String jsRaw = collectStageStreamWithRetry(
                         "JS",
+                        "javascript",
                         appId,
                         () -> aiCodeGeneratorService.generateMultiFileJsStageStream(jsInput),
                         sink,
@@ -314,6 +317,7 @@ public class AiCodeGeneratorFacade {
     }
 
     private String collectStageStreamWithRetry(String stageName,
+                                               String language,
                                                Long appId,
                                                Supplier<Flux<String>> streamSupplier,
                                                reactor.core.publisher.FluxSink<String> sink,
@@ -328,6 +332,7 @@ public class AiCodeGeneratorFacade {
 
             StringBuilder stageOutputBuilder = new StringBuilder();
             StringBuilder streamPushBuffer = new StringBuilder();
+            StringBuilder streamedPreviewBuilder = new StringBuilder();
             CountDownLatch stageLatch = new CountDownLatch(1);
             AtomicReference<Throwable> stageError = new AtomicReference<>();
             AtomicReference<Long> lastEmitAt = new AtomicReference<>(System.currentTimeMillis());
@@ -343,7 +348,15 @@ public class AiCodeGeneratorFacade {
                                     boolean reachedInterval = now - lastEmitAt.get() >= STAGE_STREAM_EMIT_INTERVAL_MS;
                                     boolean reachedSizeLimit = streamPushBuffer.length() >= STAGE_STREAM_EMIT_MAX_BUFFER_CHARS;
                                     if (reachedInterval || reachedSizeLimit) {
-                                        sink.next(streamPushBuffer.toString());
+                                        String preview = extractPreviewCode(stageOutputBuilder.toString(), language);
+                                        if (preview.length() < streamedPreviewBuilder.length()) {
+                                            streamedPreviewBuilder.setLength(0);
+                                        }
+                                        String delta = preview.substring(streamedPreviewBuilder.length());
+                                        if (StrUtil.isNotEmpty(delta)) {
+                                            sink.next(delta);
+                                            streamedPreviewBuilder.append(delta);
+                                        }
                                         streamPushBuffer.setLength(0);
                                         lastEmitAt.set(now);
                                     }
@@ -377,7 +390,14 @@ public class AiCodeGeneratorFacade {
 
             if (stageError.get() == null) {
                 if (streamChunksToClient && streamPushBuffer.length() > 0) {
-                    sink.next(streamPushBuffer.toString());
+                    String preview = extractPreviewCode(stageOutputBuilder.toString(), language);
+                    if (preview.length() < streamedPreviewBuilder.length()) {
+                        streamedPreviewBuilder.setLength(0);
+                    }
+                    String delta = preview.substring(streamedPreviewBuilder.length());
+                    if (StrUtil.isNotEmpty(delta)) {
+                        sink.next(delta);
+                    }
                 }
                 return stageOutputBuilder.toString();
             }
@@ -456,6 +476,10 @@ public class AiCodeGeneratorFacade {
             log.warn("Generated {} code block language marker mismatch, using generic fenced block fallback", language);
             return genericContent.trim();
         }
+        if (raw.contains("```")) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                    "Generated " + language + " fenced code block is incomplete");
+        }
         String trimmed = raw.trim();
         if (StrUtil.isBlank(trimmed)) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Generated " + language + " content is empty");
@@ -464,6 +488,45 @@ public class AiCodeGeneratorFacade {
             return stripLeadingJsComments(trimmed);
         }
         return trimmed;
+    }
+
+    private String extractPreviewCode(String raw, String language) {
+        if (StrUtil.isBlank(raw)) {
+            return "";
+        }
+        int openingFenceIndex = raw.indexOf("```");
+        if (openingFenceIndex < 0) {
+            return raw;
+        }
+        int openingFenceLineEnd = raw.indexOf('\n', openingFenceIndex);
+        if (openingFenceLineEnd < 0) {
+            return "";
+        }
+        String openingFenceLine = raw.substring(openingFenceIndex, openingFenceLineEnd).trim();
+        if (!isFenceLineForLanguage(openingFenceLine, language)) {
+            return raw;
+        }
+        String contentPart = raw.substring(openingFenceLineEnd + 1);
+        int closingFenceIndex = contentPart.lastIndexOf("\n```");
+        if (closingFenceIndex >= 0) {
+            return contentPart.substring(0, closingFenceIndex);
+        }
+        if (contentPart.endsWith("```")) {
+            return contentPart.substring(0, contentPart.length() - 3);
+        }
+        return contentPart;
+    }
+
+    private boolean isFenceLineForLanguage(String fenceLine, String language) {
+        if (StrUtil.isBlank(fenceLine)) {
+            return false;
+        }
+        String normalizedFence = fenceLine.toLowerCase();
+        String normalizedLanguage = StrUtil.blankToDefault(language, "").toLowerCase();
+        if ("javascript".equals(normalizedLanguage) || "js".equals(normalizedLanguage)) {
+            return normalizedFence.startsWith("```js") || normalizedFence.startsWith("```javascript");
+        }
+        return normalizedFence.startsWith("```" + normalizedLanguage);
     }
 
     private String stripLeadingJsComments(String jsCode) {
